@@ -35,7 +35,7 @@ echo -e "${NC}"
 INSTALL_DIR="/opt/kilat-executor"
 SERVICE_NAME="kilat-executor"
 PORT="${KILAT_PORT:-3002}"  # Port 3001 used by Playwright!
-GITHUB_RAW="https://raw.githubusercontent.com/YOUR_GITHUB/KilatTutor/main/lib/executor"
+GITHUB_RAW="https://raw.githubusercontent.com/matiloanjing/Kilat-Tutor/main"
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then 
