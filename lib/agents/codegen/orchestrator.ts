@@ -153,26 +153,31 @@ async function generateTests(
     code: Record<string, string>,
     params: CodeGenParams
 ): Promise<Record<string, string>> {
-    const { generateTests: genTests } = await import('./modes/test-gen');
+    try {
+        const { generateTests: genTests } = await import('./modes/test-gen');
 
-    const testSuite = await genTests(
-        code,
-        params.language || 'typescript',
-        {
-            testFramework: params.framework === 'nextjs' ? 'jest' : undefined,
-            coverageTarget: 80,
-            includeEdgeCases: true,
-            includeIntegration: params.mode === 'text2backend'
+        const testSuite = await genTests(
+            code,
+            params.language || 'typescript',
+            {
+                testFramework: params.framework === 'nextjs' ? 'jest' : undefined,
+                coverageTarget: 80,
+                includeEdgeCases: true,
+                includeIntegration: params.mode === 'text2backend'
+            }
+        );
+
+        // Convert test suite to file map
+        const testFiles: Record<string, string> = {};
+        for (const file of testSuite.files) {
+            testFiles[file.path] = file.content;
         }
-    );
 
-    // Convert test suite to file map
-    const testFiles: Record<string, string> = {};
-    for (const file of testSuite.files) {
-        testFiles[file.path] = file.content;
+        return testFiles;
+    } catch (error) {
+        console.warn('⚠️ Test generation skipped (module not available in production)');
+        return {};
     }
-
-    return testFiles;
 }
 
 /**

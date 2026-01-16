@@ -45,8 +45,15 @@ import('./rag-integration').then(module => {
 import { documentSegmenter } from './document-segmenter';
 import { planningAgent, CodePlan } from './planning-agent';
 import { referenceAgent, ReferenceSearchResult } from './reference-agent';
-import { testExecutor } from './test-executor';
 import { responseCache } from './response-cache';
+
+// Test executor - optional (may not exist in production)
+let testExecutor: any = null;
+import('./test-executor').then(module => {
+    testExecutor = module.testExecutor;
+}).catch(() => {
+    console.warn('⚠️ TestExecutor not available (excluded from production build)');
+});
 
 // ============================================================================
 // Types (Internal - Advanced Backend)
