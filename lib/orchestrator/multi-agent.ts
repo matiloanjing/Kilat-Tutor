@@ -28,6 +28,10 @@ import { responseCache } from '@/lib/agents/codegen/response-cache';
 import { semanticCache } from '@/lib/cache/semantic-cache';
 import { prefetchRelatedPatterns } from '@/lib/cache/prefetch';
 import { promptCache } from '@/lib/cache/prompt-cache';
+import { findCachedResponse } from '@/lib/cache/persistent-cache';
+
+// Supabase for persistent cache
+import { createClient } from '@/lib/auth/server';
 
 // Database-driven model service (replaces hardcoded AGENT_MODELS)
 import { modelService, getDefaultModel } from '@/lib/models/model-service';
@@ -134,6 +138,27 @@ export class MultiAgentOrchestrator {
             // =====================================================
             // CACHE CHECK (Phase 1: Shared cache for instant response)
             // =====================================================
+
+            // 0. Try Persistent cache (Supabase job_queue) - survives Vercel cold starts!
+            try {
+                const supabase = await createClient();
+                const persistentResult = await findCachedResponse(userRequest, supabase, 72, 0.7);
+                if (persistentResult && persistentResult.files) {
+                    console.log('💾 [Planning] PERSISTENT Cache hit! Returning from job_queue.');
+                    if (onProgress) await onProgress(100, 'Using cached result...');
+                    return {
+                        success: true,
+                        projectName: 'cached-project',
+                        summary: persistentResult.outputContent || 'Cached response from previous request',
+                        files: persistentResult.files,
+                        agentResults: [],
+                        totalDuration: Date.now() - startTime
+                    };
+                }
+            } catch (persistentError) {
+                console.warn('[Planning] Persistent cache check failed:', persistentError);
+                // Continue to in-memory cache
+            }
 
             // 1. Try Jaccard-based cache (faster, exact-ish match)
             const cachedResult = responseCache.findSimilar(userRequest);
@@ -472,6 +497,26 @@ export class MultiAgentOrchestrator {
             // =====================================================
             // CACHE CHECK (Phase 1: Shared cache for instant response)
             // =====================================================
+
+            // Phase 0: PERSISTENT cache (Supabase job_queue) - survives Vercel cold starts!
+            try {
+                const supabase = await createClient();
+                const persistentResult = await findCachedResponse(userRequest, supabase, 72, 0.7);
+                if (persistentResult && persistentResult.files) {
+                    console.log('💾 [Fast] PERSISTENT Cache hit! Returning from job_queue.');
+                    return {
+                        success: true,
+                        projectName: 'cached-project',
+                        summary: persistentResult.outputContent || 'Cached response from previous request',
+                        files: persistentResult.files,
+                        agentResults: [],
+                        totalDuration: Date.now() - startTime
+                    };
+                }
+            } catch (persistentError) {
+                console.warn('[Fast] Persistent cache check failed:', persistentError);
+            }
+
             // Phase 1a: Jaccard similarity (fast, exact match)
             const cachedResult = responseCache.findSimilar(userRequest);
             if (cachedResult) {
