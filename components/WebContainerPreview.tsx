@@ -639,57 +639,57 @@ export default function WebContainerPreview({
     return (
         <div className={`flex flex-col h-full bg-[#020617] ${className}`}>
 
-            {/* Browser Chrome */}
-            <div className="h-12 border-b border-white/5 flex items-center justify-between px-4 bg-[#0f172a]/80 backdrop-blur z-20 flex-shrink-0">
-                <div className="flex items-center gap-4 flex-1">
-                    {/* Traffic Lights */}
-                    <div className="flex gap-1.5">
-                        <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/50" />
-                        <div className="w-3 h-3 rounded-full bg-yellow-500/20 border border-yellow-500/50" />
-                        <div className="w-3 h-3 rounded-full bg-green-500/20 border border-green-500/50" />
-                    </div>
+            {/* Compact Browser Chrome - Single Line */}
+            <div className="h-9 border-b border-white/5 flex items-center gap-2 px-3 bg-[#0f172a]/80 backdrop-blur z-20 flex-shrink-0">
+                {/* Traffic Lights */}
+                <div className="flex gap-1.5 flex-shrink-0">
+                    <div className="w-2.5 h-2.5 rounded-full bg-red-500/20 border border-red-500/50" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/20 border border-yellow-500/50" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-green-500/20 border border-green-500/50" />
+                </div>
 
-                    {/* URL Bar */}
-                    <div className="bg-[#1e293b] border border-white/5 rounded-lg h-8 flex items-center px-3 flex-1 max-w-md text-xs text-gray-400 font-mono">
+                {/* URL Bar - Truncated Single Line */}
+                <div className="bg-[#1e293b] border border-white/5 rounded h-6 flex items-center px-2 flex-1 min-w-0">
+                    <span className="text-[11px] text-gray-400 font-mono truncate">
                         {previewUrl || 'waiting for server...'}
-                    </div>
-
-                    {/* Status Badge */}
-                    <span className={`text-[10px] font-mono uppercase px-2 py-1 rounded-full ${status === 'ready' ? 'bg-green-500/20 text-green-400' :
-                        status === 'error' ? 'bg-red-500/20 text-red-400' :
-                            'bg-yellow-500/20 text-yellow-400'
-                        }`}>
-                        {status}
                     </span>
                 </div>
 
+                {/* Status Badge */}
+                <span className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded flex-shrink-0 ${status === 'ready' ? 'bg-green-500/20 text-green-400' :
+                    status === 'error' ? 'bg-red-500/20 text-red-400' :
+                        'bg-yellow-500/20 text-yellow-400'
+                    }`}>
+                    {status}
+                </span>
+
                 {/* Actions */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 flex-shrink-0">
                     <button
                         onClick={handleRefresh}
                         disabled={status === 'booting' || status === 'installing'}
-                        className="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition disabled:opacity-50"
+                        className="p-1.5 text-gray-400 hover:text-white hover:bg-white/5 rounded transition disabled:opacity-50"
                         title="Refresh"
                     >
-                        <RefreshCw size={16} className={status === 'starting' || status === 'installing' ? 'animate-spin' : ''} />
+                        <RefreshCw size={14} className={status === 'starting' || status === 'installing' ? 'animate-spin' : ''} />
                     </button>
                     {previewUrl && (
                         <a
                             href={previewUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition"
+                            className="p-1.5 text-gray-400 hover:text-white hover:bg-white/5 rounded transition"
                             title="Open in new tab"
                         >
-                            <ExternalLink size={16} />
+                            <ExternalLink size={14} />
                         </a>
                     )}
                 </div>
             </div>
 
             {/* Preview Canvas */}
-            <div className="flex-1 p-4 relative">
-                <div className="w-full h-full bg-white rounded-xl overflow-hidden shadow-2xl border border-white/10 relative">
+            <div className="flex-1 p-2 relative">
+                <div className="w-full h-full bg-white rounded-lg overflow-hidden shadow-xl border border-white/10 relative">
                     {/* Iframe */}
                     {previewUrl ? (
                         <iframe

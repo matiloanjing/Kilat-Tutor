@@ -47,9 +47,9 @@ export async function middleware(request: NextRequest) {
 
     // CRITICAL: Add COOP/COEP headers for WebContainer routes
     // Reference: https://webcontainer.io - requires Cross-Origin Isolation
-    // These headers MUST be set in middleware because middleware response overrides next.config.js headers
+    // Use 'credentialless' instead of 'require-corp' to allow external resources (NPM)
     if (pathname.startsWith('/kilatcode')) {
-        response.headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
+        response.headers.set('Cross-Origin-Embedder-Policy', 'credentialless');
         response.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
     }
 
