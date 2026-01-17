@@ -2,8 +2,8 @@ import { type NextRequest } from 'next/server';
 import { updateSession } from '@/lib/auth/middleware';
 
 export async function middleware(request: NextRequest) {
-    // Update session
-    const response = await updateSession(request);
+    // Update session and get user
+    const { response, user } = await updateSession(request);
 
     // Protected routes - require authentication
     // Includes all Kilat agent pages + user account pages
@@ -18,7 +18,7 @@ export async function middleware(request: NextRequest) {
         '/chat'
     ];
     const adminRoutes = ['/admin'];
-    const publicOnlyRoutes = ['/login', '/signup'];
+    const publicOnlyRoutes = ['/login', '/signup', '/auth/login'];
 
     const { pathname } = request.nextUrl;
 
@@ -27,15 +27,9 @@ export async function middleware(request: NextRequest) {
     const isAdminRoute = adminRoutes.some(route => pathname.startsWith(route));
     const isPublicOnlyRoute = publicOnlyRoutes.some(route => pathname.startsWith(route));
 
-    // Get session from response cookies (Supabase SSR uses pattern: sb-[project-ref]-auth-token)
-    const allCookies = request.cookies.getAll();
-    const session = allCookies.find(cookie =>
-        cookie.name.startsWith('sb-') && cookie.name.includes('-auth-token')
-    );
-
-    // Redirect logic
+    // Redirect logic - Use actual user from Supabase, not just cookie
     if (isProtectedRoute || isAdminRoute) {
-        if (!session) {
+        if (!user) {
             // Not authenticated, redirect to login
             const url = request.nextUrl.clone();
             url.pathname = '/login';
@@ -44,8 +38,8 @@ export async function middleware(request: NextRequest) {
         }
     }
 
-    if (isPublicOnlyRoute && session) {
-        // Already authenticated, redirect to chat (dashboard not implemented)
+    if (isPublicOnlyRoute && user) {
+        // Already authenticated, redirect to chat
         const url = request.nextUrl.clone();
         url.pathname = '/chat';
         return Response.redirect(url);

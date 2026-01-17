@@ -1,7 +1,8 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import type { User } from '@supabase/supabase-js';
 
-export async function updateSession(request: NextRequest) {
+export async function updateSession(request: NextRequest): Promise<{ response: NextResponse; user: User | null }> {
     let response = NextResponse.next({
         request: {
             headers: request.headers,
@@ -54,8 +55,8 @@ export async function updateSession(request: NextRequest) {
         }
     );
 
-    // Refresh session if expired
-    await supabase.auth.getUser();
+    // Refresh session and get user
+    const { data: { user } } = await supabase.auth.getUser();
 
-    return response;
+    return { response, user };
 }
