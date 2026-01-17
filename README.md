@@ -59,6 +59,40 @@ graph TD
     User --> |Feedback| RLHF
 ```
 
+## 🔄 Request Processing Pipeline
+
+```mermaid
+graph TD
+    req(User Request) --> cache{Check Cache}
+    
+    %% Layer 1: Caching
+    cache -->|Hit| return[Return Instant Response]
+    cache -->|Miss| mode{Mode Selection}
+    
+    %% Layer 2: Orchestration
+    mode -->|Fast Mode| fast[Fast Executor]
+    mode -->|Planning Mode| plan[Planner Agent]
+    
+    %% Layer 3: Execution context
+    subgraph Execution [Agent Execution]
+        plan --> rag[RAG Retrieval]
+        fast --> rag
+        rag --> gen[LLM Generation]
+    end
+    
+    gen --> output(Final Response)
+    
+    %% Layer 4: Async Learning
+    output -->|Background| learn[AI Learning Loop]
+    subgraph Skynet [Skynet Async]
+        learn --> save_cache[Save to Job Queue]
+        learn --> rlhf[RLHF Analysis]
+        learn --> patterns[Pattern Recognition]
+    end
+    
+    return -.-> learn
+```
+
 ---
 
 ## 🚀 Key Features
