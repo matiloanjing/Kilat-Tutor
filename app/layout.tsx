@@ -3,6 +3,7 @@ import { Inter, JetBrains_Mono, Plus_Jakarta_Sans, Space_Mono } from 'next/font/
 import './globals.css';
 import { BRANDING } from '@/lib/constants/branding';
 import { AuthProvider } from '@/lib/auth/AuthProvider';
+import { Analytics } from '@vercel/analytics/react';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-jetbrains-mono' });
@@ -73,6 +74,7 @@ Built with ❤️ by KilatCode Studio
                 <AuthProvider>
                     {children}
                 </AuthProvider>
+                <Analytics />
             </body>
         </html>
     );
