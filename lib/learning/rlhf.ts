@@ -47,7 +47,7 @@ export async function analyzeFeedbackPatterns(
     // Get recent feedback with session data
     const { data: feedback, error } = await supabase
         .from('agent_feedback')
-        .select('agent_type, rating, session_id, created_at')
+        .select('agent_type, rating, was_successful, session_id, created_at')
         .gte('created_at', since.toISOString())
         .order('created_at', { ascending: false });
 
@@ -73,9 +73,16 @@ export async function analyzeFeedbackPatterns(
         }
 
         const p = patterns.get(key)!;
-        if (fb.rating === 'positive' || fb.rating === 'like' || fb.rating > 0) {
+        // Check rating first, then fallback to was_successful
+        const isPositive = fb.rating === 'positive' ||
+            fb.rating === 'like' ||
+            fb.rating > 0 ||
+            (fb.rating === null && fb.was_successful === true);
+
+        if (isPositive) {
             p.positive_count++;
-        } else {
+        } else if (fb.rating !== null || fb.was_successful === false) {
+            // Only count as negative if explicitly negative
             p.negative_count++;
         }
     }
