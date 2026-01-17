@@ -16,35 +16,46 @@
 
 ```mermaid
 graph TD
-    User((User)) --> |Interaction| FE[Frontend: Hybrid IDE]
+    User((User))
+    FE["Frontend: Hybrid IDE"]
+    
+    User --> |Interaction| FE
     
     subgraph Frontend [Next.js Client]
-        FE --> |Chat Stream| Chat[KilatChat Panel]
-        FE --> |Live Code| Work[Workspace Panel]
-        Work --> |Monaco| Editor[Code Editor]
-        Work --> |WebContainer| Preview[Live Preview]
+        FE --> |Chat Stream| Chat["KilatChat Panel"]
+        FE --> |Live Code| Work["Workspace Panel"]
+        Work --> |Monaco| Editor["Code Editor"]
+        Work --> |WebContainer| Preview["Live Preview"]
     end
     
-    FE --> |API Request| API[Next.js API Routes]
+    API["Next.js API Routes"]
+    FE --> |API Request| API
     
     subgraph Backend [The Mandor Monolith]
-        API --> |Orchestrate| Mandor[Mandor AI Gateway]
+        Mandor["Mandor AI Gateway"]
+        API --> |Orchestrate| Mandor
         
-        subgraph Skynet [Skynet Learning System]
-            RLHF[RLHF Engine] --> |Adjustments| Mandor
-            Memory[User Memory] --> |Preferences| Mandor
-            Patterns[Proven Patterns] --> |Success History| Mandor
-        end
+        RLHF["RLHF Engine"]
+        Memory["User Memory"]
+        Patterns["Proven Patterns"]
         
-        Mandor --> |Route| Tier{Tier Router}
-        Tier --> |Simple| Cache[Semantic Cache]
-        Tier --> |Complex| Planner[Planner Agent]
+        RLHF --> |Adjustments| Mandor
+        Memory --> |Preferences| Mandor
+        Patterns --> |Success History| Mandor
         
-        Mandor --> |Knowledge| RAG[Per-Agent RAG]
-        RAG --> |Vector| PGVector[(pgvector)]
+        Tier{"Tier Router"}
+        Mandor --> |Route| Tier
+        Tier --> |Simple| Cache["Semantic Cache"]
+        Tier --> |Complex| Planner["Planner Agent"]
+        
+        RAG["Per-Agent RAG"]
+        Mandor --> |Knowledge| RAG
+        Vector[("pgvector")]
+        RAG --> |Vector| Vector
     end
     
-    Mandor --> |Store| DB[(Supabase DB)]
+    DB[("Supabase DB")]
+    Mandor --> |Store| DB
     User --> |Feedback| RLHF
 ```
 
