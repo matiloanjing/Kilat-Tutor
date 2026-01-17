@@ -80,6 +80,51 @@ export default function KilatWritePage({ params }: PageProps) {
     }, [isProcessing, projectId, selectedModel, user?.id]);
 
     const handleNewProject = useCallback(() => router.push(`/kilatwrite/c/${crypto.randomUUID()}`), [router]);
+
+    // AI Learning: Feedback handler
+    const handleFeedback = useCallback(async (messageId: string, rating: 'good' | 'bad') => {
+        try {
+            await fetch('/api/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messageId,
+                    sessionId: projectId,
+                    rating,
+                    agentType: 'cowriter',
+                    modelUsed: selectedModel,
+                    userId: user?.id
+                })
+            });
+        } catch (error) {
+            console.error('❌ Feedback error:', error);
+        }
+    }, [projectId, selectedModel, user?.id]);
+
+    // AI Learning: Regenerate handler
+    const handleRegenerate = useCallback(async (messageId: string) => {
+        try {
+            await fetch('/api/kilat/regenerate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messageId,
+                    sessionId: projectId,
+                    agentType: 'cowriter',
+                    reason: 'User clicked regenerate button'
+                })
+            });
+
+            const msgIndex = messages.findIndex(m => m.id === messageId);
+            if (msgIndex > 0 && messages[msgIndex - 1]?.role === 'user') {
+                await handleSendMessage(messages[msgIndex - 1].content);
+            }
+        } catch (error) {
+            console.error('❌ Regenerate error:', error);
+        }
+    }, [messages, projectId, handleSendMessage]);
+
+    // Document copy (existing functionality)
     const handleCopy = () => navigator.clipboard.writeText(documentContent);
     if (loading) return <div className="h-screen w-screen bg-obsidian flex items-center justify-center"><LoadingKilat /></div>;
 
@@ -91,7 +136,10 @@ export default function KilatWritePage({ params }: PageProps) {
                 <ChatPanel sessionId={projectId} messages={messages} isProcessing={isProcessing} chatMode="planning" selectedModel={selectedModel}
                     onSendMessage={handleSendMessage} onModeChange={() => { }} onModelChange={setSelectedModel} quota={quota}
                     availableModels={availableModels} onSessionSelect={(id) => router.push(`/kilatwrite/c/${id}`)} onNewChat={handleNewProject}
-                    isCollapsed={isChatCollapsed} onToggleCollapse={() => setIsChatCollapsed(p => !p)} agentType="cowriter" />
+                    isCollapsed={isChatCollapsed} onToggleCollapse={() => setIsChatCollapsed(p => !p)} agentType="cowriter"
+                    onFeedback={handleFeedback}
+                    onRegenerate={handleRegenerate}
+                    onCopy={(content) => navigator.clipboard.writeText(content)} />
 
                 {/* Post-Task Suggestions */}
                 {suggestions.length > 0 && !isChatCollapsed && (

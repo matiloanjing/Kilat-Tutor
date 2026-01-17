@@ -80,6 +80,60 @@ export default function KilatIdeaPage({ params }: PageProps) {
     }, [isProcessing, projectId, selectedModel, user?.id]);
 
     const handleNewProject = useCallback(() => router.push(`/kilatidea/c/${crypto.randomUUID()}`), [router]);
+    
+    // AI Learning: Feedback handler
+    const handleFeedback = useCallback(async (messageId: string, rating: 'good' | 'bad') => {
+        try {
+            const res = await fetch('/api/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messageId,
+                    sessionId: projectId,
+                    rating,
+                    agentType: 'ideagen',
+                    modelUsed: selectedModel,
+                    userId: user?.id
+                })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                console.log(`✅ Feedback submitted: ${rating}`);
+            }
+        } catch (error) {
+            console.error('❌ Feedback error:', error);
+        }
+    }, [projectId, selectedModel, user?.id]);
+
+    // AI Learning: Regenerate handler
+    const handleRegenerate = useCallback(async (messageId: string) => {
+        try {
+            await fetch('/api/kilat/regenerate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messageId,
+                    sessionId: projectId,
+                    agentType: 'ideagen',
+                    reason: 'User clicked regenerate button'
+                })
+            });
+
+            const msgIndex = messages.findIndex(m => m.id === messageId);
+            if (msgIndex > 0 && messages[msgIndex - 1]?.role === 'user') {
+                console.log('🔄 Regenerating response...');
+                await handleSendMessage(messages[msgIndex - 1].content);
+            }
+        } catch (error) {
+            console.error('❌ Regenerate error:', error);
+        }
+    }, [messages, projectId, handleSendMessage]);
+
+    const handleCopy = useCallback((content: string) => {
+        console.log('✂️ Content copied');
+    }, []);
+
     if (loading) return <div className="h-screen w-screen bg-obsidian flex items-center justify-center"><LoadingKilat /></div>;
 
     const colors = ['bg-yellow-500/20 border-yellow-500/50', 'bg-pink-500/20 border-pink-500/50', 'bg-blue-500/20 border-blue-500/50', 'bg-green-500/20 border-green-500/50', 'bg-purple-500/20 border-purple-500/50'];
@@ -92,7 +146,10 @@ export default function KilatIdeaPage({ params }: PageProps) {
                 <ChatPanel sessionId={projectId} messages={messages} isProcessing={isProcessing} chatMode="planning" selectedModel={selectedModel}
                     onSendMessage={handleSendMessage} onModeChange={() => { }} onModelChange={setSelectedModel} quota={quota}
                     availableModels={availableModels} onSessionSelect={(id) => router.push(`/kilatidea/c/${id}`)} onNewChat={handleNewProject}
-                    isCollapsed={isChatCollapsed} onToggleCollapse={() => setIsChatCollapsed(p => !p)} agentType="ideagen" />
+                    isCollapsed={isChatCollapsed} onToggleCollapse={() => setIsChatCollapsed(p => !p)} agentType="ideagen"
+                    onFeedback={handleFeedback}
+                    onRegenerate={handleRegenerate}
+                    onCopy={handleCopy} />
 
                 {/* Post-Task Suggestions */}
                 {suggestions.length > 0 && !isChatCollapsed && (

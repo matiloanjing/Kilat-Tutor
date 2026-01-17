@@ -387,6 +387,70 @@ export default function KilatCodePage({ params }: PageProps) {
         setIsExplorerCollapsed(prev => !prev);
     }, []);
 
+    // AI Learning: Feedback handler
+    const handleFeedback = useCallback(async (messageId: string, rating: 'good' | 'bad') => {
+        try {
+            const res = await fetch('/api/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messageId,
+                    sessionId: projectId,
+                    rating,
+                    agentType: 'codegen',
+                    modelUsed: selectedModel,
+                    userId: user?.id
+                })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                console.log(`✅ Feedback submitted: ${rating}`);
+            } else {
+                console.error('❌ Feedback failed:', data.error);
+            }
+        } catch (error) {
+            console.error('❌ Feedback error:', error);
+        }
+    }, [projectId, selectedModel, user?.id]);
+
+    // AI Learning: Regenerate handler
+    const handleRegenerate = useCallback(async (messageId: string) => {
+        try {
+            // 1. Log regenerate event for AI learning
+            await fetch('/api/kilat/regenerate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messageId,
+                    sessionId: projectId,
+                    agentType: 'codegen',
+                    reason: 'User clicked regenerate button'
+                })
+            });
+
+            // 2. Find the user message before this assistant message
+            const msgIndex = messages.findIndex(m => m.id === messageId);
+            if (msgIndex > 0) {
+                const userMessage = messages[msgIndex - 1];
+                if (userMessage.role === 'user') {
+                    console.log('🔄 Regenerating response...');
+                    // Re-trigger generation with same prompt
+                    await handleSendMessage(userMessage.content);
+                }
+            }
+        } catch (error) {
+            console.error('❌ Regenerate error:', error);
+        }
+    }, [messages, projectId, handleSendMessage]);
+
+    // Copy handler (for analytics)
+    const handleCopy = useCallback((content: string) => {
+        console.log('✂️ Content copied to clipboard');
+        // Optional: track copy events for future analytics
+    }, []);
+
+
     if (loading) {
         return (
             <div className="h-screen w-screen bg-obsidian flex items-center justify-center">
@@ -414,6 +478,9 @@ export default function KilatCodePage({ params }: PageProps) {
                     onSendMessage={handleSendMessage}
                     onModeChange={setChatMode}
                     onModelChange={handleModelChange}
+                    onFeedback={handleFeedback}
+                    onRegenerate={handleRegenerate}
+                    onCopy={handleCopy}
                     quota={quota}
                     availableModels={availableModels}
                     onSessionSelect={handleProjectSelect}

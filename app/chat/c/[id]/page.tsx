@@ -246,10 +246,17 @@ export default function ChatSessionPage({ params }: PageProps) {
     const handleFeedback = async (messageId: string, rating: 'good' | 'bad') => {
         setMessageRatings(prev => ({ ...prev, [messageId]: rating }));
         try {
-            await fetch('/api/kilat/feedback', {
+            await fetch('/api/feedback', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messageId, rating, score: rating === 'good' ? 100 : 20 }),
+                body: JSON.stringify({
+                    messageId,
+                    sessionId,
+                    rating,
+                    agentType: agentType || 'chat',
+                    modelUsed: selectedModel,
+                    userId: user?.id
+                }),
             });
             console.log(`✅ Feedback: ${rating} for ${messageId}`);
         } catch (e) {

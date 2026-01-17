@@ -31,6 +31,45 @@ const FeedbackSubmissionSchema = z.object({
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
+
+        // BACKWARD COMPATIBLE: Check if this is a simple good/bad feedback from UI buttons
+        if (body.rating && (body.rating === 'good' || body.rating === 'bad')) {
+            const { messageId, sessionId, rating, agentType, modelUsed, userId } = body;
+
+            if (!messageId || !agentType) {
+                return NextResponse.json({
+                    success: false,
+                    error: 'messageId and agentType are required'
+                }, { status: 400 });
+            }
+
+            const wasSuccessful = rating === 'good';
+            const userRating = rating === 'good' ? 5 : 1;
+
+            console.log(`📊 [Feedback] Simple rating: ${agentType} - ${rating}`);
+
+            await submitFeedback({
+                sessionId: sessionId || 'unknown',
+                userId: userId || undefined,
+                agentType: agentType as any,
+                userRating: userRating as 1 | 2 | 3 | 4 | 5,
+                feedbackText: undefined,
+                wasSuccessful,
+                modelUsed: modelUsed || 'unknown',
+                metadata: {
+                    messageId,
+                    source: 'chat_panel_button',
+                    timestamp: new Date().toISOString()
+                }
+            });
+
+            return NextResponse.json({
+                success: true,
+                message: 'Feedback recorded for AI learning'
+            });
+        }
+
+        // EXISTING: Full feedback schema validation
         const validatedData = FeedbackSubmissionSchema.parse(body);
 
         // Ensure userRating is valid 1-5 star rating
@@ -67,9 +106,41 @@ export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
         const action = searchParams.get('action');
+        const sessionId = searchParams.get('sessionId');
         const agentType = searchParams.get('agentType');
         const model = searchParams.get('model');
         const userId = searchParams.get('userId');
+
+        // BACKWARD COMPATIBLE: Load ratings by sessionId for UI persistence
+        if (sessionId && !action) {
+            const { createClient } = await import('@supabase/supabase-js');
+            const supabase = createClient(
+                process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                process.env.SUPABASE_SERVICE_ROLE_KEY!
+            );
+
+            const { data, error } = await supabase
+                .from('agent_feedback')
+                .select('metadata, was_successful')
+                .eq('session_id', sessionId);
+
+            if (error) throw error;
+
+            const ratings: Record<string, 'good' | 'bad'> = {};
+            data?.forEach((entry: any) => {
+                const messageId = entry.metadata?.messageId;
+                if (messageId) {
+                    ratings[messageId] = entry.was_successful ? 'good' : 'bad';
+                }
+            });
+
+            console.log(`📊 [Feedback GET] Loaded ${Object.keys(ratings).length} ratings for session`);
+
+            return NextResponse.json({
+                success: true,
+                ratings
+            });
+        }
 
         if (action === 'stats' && agentType) {
             // Get feedback statistics
