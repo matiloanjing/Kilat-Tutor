@@ -10,24 +10,15 @@
  * - Auto-generation of missing essentials
  * - LLM-based intelligent fixes
  * - Multi-language response matching user's prompt
- * - Test generation and execution (optional)
  * 
  * Copyright © 2026 KilatOS
  */
 
 import { aiMandor } from '@/lib/ai/mandor';
-import { testExecutor, type TestExecutionResult, type GeneratedTest } from '@/lib/agents/codegen/test-executor';
 
 // =====================================================
 // TYPES
 // =====================================================
-
-export interface VerificationOptions {
-    runTests?: boolean;         // Run test executor on generated code
-    enableAudit?: boolean;      // Run code audit (security, performance)
-    model?: string;             // User-selected model
-    userId?: string;
-}
 
 export interface VerificationResult {
     success: boolean;
@@ -35,10 +26,7 @@ export interface VerificationResult {
     issues: string[];
     fixes: string[];
     greeting: string;
-    testResults?: TestExecutionResult;
-    generatedTests?: GeneratedTest[];
 }
-
 
 export interface ProjectStructure {
     hasApp: boolean;
@@ -107,103 +95,6 @@ RESPOND ONLY WITH THE GREETING, NO EXPLANATION.`;
 
     // Fallback: Simple English greeting
     return `Hello! 👋 I've finished creating **${projectName}** for you.\n\n${fileCount} files generated. View the code in the Explorer panel.\n\nWould you like to add or change anything?`;
-}
-
-// =====================================================
-// LLM QUALITY CHECK
-// =====================================================
-
-/**
- * LLM-based quality verification
- * Uses user's selected model to check if code matches requirements
- */
-export async function verifyCodeQuality(
-    files: Record<string, string>,
-    userPrompt: string,
-    model?: string,
-    userId?: string
-): Promise<{ pass: boolean; issues: string[] }> {
-    // Get App.tsx content for analysis
-    const appFile = files['App.tsx'] || files['src/App.tsx'] || '';
-    const fileList = Object.keys(files).join(', ');
-
-    if (!appFile || appFile.length < 50) {
-        return { pass: false, issues: ['App.tsx is empty or missing'] };
-    }
-
-    const prompt = `You are an expert code quality reviewer. Analyze if the generated code properly implements the user's request.
-
-# USER REQUEST
-"${userPrompt}"
-
-# FILES GENERATED (${Object.keys(files).length} files)
-${fileList}
-
-# MAIN CODE (App.tsx)
-\`\`\`tsx
-${appFile.substring(0, 3000)}
-\`\`\`
-
-# QUALITY CHECK CRITERIA
-
-## 1. FEATURE COMPLETENESS (40%)
-- Does the code implement ALL main features mentioned in the request?
-- Are there core components that should exist but are missing?
-- Is this a real implementation or just placeholder/skeleton code?
-
-## 2. CODE ARCHITECTURE (20%)
-- Is there proper component structure (not everything in one file)?
-- Are there necessary supporting files (styles, config, types)?
-- Is the import/export structure correct?
-
-## 3. IMPLEMENTATION QUALITY (25%)
-- Does the code have actual logic, not just "TODO" or empty functions?
-- Are there proper state management and event handlers?
-- Is the UI meaningful (not just "Hello World")?
-
-## 4. PROJECT REQUIREMENTS (15%)
-- Minimum 8 files for a proper project
-- Must have: App.tsx, package.json, index.css or equivalent
-- No backend-only tools (Prisma, MongoDB, pg) in browser projects
-
-# SCORING
-- PASS: Score >= 70% across all criteria
-- FAIL: Score < 70% or critical issues found
-
-# OUTPUT FORMAT (JSON ONLY)
-{
-  "pass": true/false,
-  "score": 0-100,
-  "issues": ["issue1", "issue2"],
-  "missing_features": ["feature1", "feature2"],
-  "recommendation": "one line summary"
-}
-
-Respond with JSON only. No explanation outside JSON.`;
-
-    try {
-        const result = await aiMandor.call(prompt, {
-            userId,
-            model,
-            maxTokens: 300
-        });
-
-        // Parse JSON response
-        const jsonMatch = result.result.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            console.log(`🧠 [FinalVerifier] LLM Quality Check: ${parsed.pass ? 'PASS' : 'FAIL'}`);
-            return {
-                pass: parsed.pass === true,
-                issues: Array.isArray(parsed.issues) ? parsed.issues : []
-            };
-        }
-    } catch (error) {
-        console.warn('[FinalVerifier] LLM quality check failed:', error);
-    }
-
-    // Default: pass (don't block on LLM failure)
-    return { pass: true, issues: [] };
 }
 
 // =====================================================
@@ -354,21 +245,7 @@ export function consolidatePackageJsons(files: Record<string, string>): string {
     delete merged.scripts.start;
     delete merged.scripts.lint;
 
-    // Remove backend database tools (don't work in browser WebContainer)
-    delete merged.dependencies.prisma;
-    delete merged.dependencies['@prisma/client'];
-    delete merged.dependencies['@prisma/engines'];
-    delete merged.dependencies.mongoose;
-    delete merged.dependencies.pg;
-    delete merged.dependencies.mysql;
-    delete merged.dependencies.mysql2;
-    delete merged.dependencies.sqlite3;
-    delete merged.dependencies.sequelize;
-    delete merged.dependencies.typeorm;
-    delete merged.devDependencies.prisma;
-
     console.log('🔧 [FinalVerifier] Forced Vite scripts (WebContainer compatible)');
-    console.log('🔧 [FinalVerifier] Removed backend database tools');
 
     // Ensure essential dependencies exist
     if (!merged.dependencies.react) {
@@ -529,8 +406,7 @@ export async function finalVerify(
     files: Record<string, string>,
     userPrompt: string,
     projectName: string,
-    userId?: string,
-    model?: string
+    userId?: string
 ): Promise<VerificationResult> {
     console.log('\n🔍 [FinalVerifier] Starting final verification...');
     console.log(`   Files received: ${Object.keys(files).length}`);
@@ -554,26 +430,6 @@ export async function finalVerify(
     fixes.push('Consolidated all package.json files into one');
 
     // =====================================================
-    // STEP 1.5: Remove backend-only folders
-    // =====================================================
-    const backendFolders = ['prisma', 'database', 'server', 'api', 'migrations'];
-    let removedCount = 0;
-
-    for (const folder of backendFolders) {
-        for (const path of Object.keys(verifiedFiles)) {
-            if (path.startsWith(folder + '/') || path === folder) {
-                delete verifiedFiles[path];
-                removedCount++;
-            }
-        }
-    }
-
-    if (removedCount > 0) {
-        console.log(`🗑️ [FinalVerifier] Removed ${removedCount} backend files`);
-        fixes.push(`Removed ${removedCount} backend-only files`);
-    }
-
-    // =====================================================
     // STEP 2: Validate project structure
     // =====================================================
     const structure = validateProjectStructure(verifiedFiles);
@@ -588,48 +444,6 @@ export async function finalVerify(
     if (!structure.hasStyles) {
         verifiedFiles = generateMissingEssentials(verifiedFiles, ['index.css']);
         fixes.push('Generated missing index.css');
-    }
-
-    // =====================================================
-    // STEP 2.5: LLM Quality Check (uses user's model)
-    // =====================================================
-    const qualityCheck = await verifyCodeQuality(verifiedFiles, userPrompt, model, userId);
-    if (!qualityCheck.pass) {
-        issues.push(...qualityCheck.issues);
-        console.warn(`⚠️ [FinalVerifier] LLM found issues: ${qualityCheck.issues.join(', ')}`);
-    }
-
-    // =====================================================
-    // STEP 2.7: Test Generation & Execution (AUTOMATIC)
-    // Piston API first, VPS fallback for heavy tasks
-    // =====================================================
-    let testResults: TestExecutionResult | undefined;
-    let generatedTests: GeneratedTest[] | undefined;
-
-    // Get App.tsx for test generation
-    const appCode = verifiedFiles['App.tsx'] || verifiedFiles['src/App.tsx'] || '';
-
-    // Only run tests if we have substantial code
-    if (appCode && appCode.length > 200) {
-        console.log('🧪 [FinalVerifier] Running automatic test execution...');
-        try {
-            testExecutor.setConfig({ model });
-
-            // Generate tests via LLM
-            generatedTests = await testExecutor.generateTests(appCode);
-            console.log(`   Generated ${generatedTests.length} tests`);
-
-            // Execute tests - Piston API first, VPS fallback
-            testResults = await testExecutor.executeTests(appCode, generatedTests);
-            console.log(`   Test results: ${testResults.passed}/${testResults.total} passed (via ${testResults.executorUsed})`);
-
-            if (!testResults.success) {
-                issues.push(`Tests failed: ${testResults.failed}/${testResults.total}`);
-            }
-        } catch (error) {
-            console.warn('[FinalVerifier] Test execution failed, continuing:', error);
-            // Don't block on test failure - just log
-        }
     }
 
     // =====================================================
@@ -656,9 +470,7 @@ export async function finalVerify(
         files: verifiedFiles,
         issues,
         fixes,
-        greeting,
-        testResults,
-        generatedTests
+        greeting
     };
 }
 

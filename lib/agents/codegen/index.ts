@@ -46,8 +46,9 @@ import { documentSegmenter } from './document-segmenter';
 import { planningAgent, CodePlan } from './planning-agent';
 import { referenceAgent, ReferenceSearchResult } from './reference-agent';
 import { responseCache } from './response-cache';
-import { testExecutor } from './test-executor';
 
+// Test executor removed - not needed in production
+const testExecutor: any = null;
 
 // ============================================================================
 // Types (Internal - Advanced Backend)
