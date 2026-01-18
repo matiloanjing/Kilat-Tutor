@@ -114,8 +114,14 @@ export async function logImageUsage(
         taskInput: string;
         success: boolean;
         latencyMs: number;
+        modelAttempts?: string[];  // Track fallback chain if retry happened
     }
 ): Promise<void> {
+    // Log fallback chain for debugging
+    if (metadata.modelAttempts && metadata.modelAttempts.length > 1) {
+        console.log(`📊 Image Fallback chain: ${metadata.modelAttempts.join(' → ')}`);
+    }
+
     await usageTracker.logUsage({
         userId: metadata.userId === 'anonymous' || !metadata.userId ? undefined : metadata.userId, // Fix: undefined instead of "anonymous"
         sessionId: metadata.sessionId,

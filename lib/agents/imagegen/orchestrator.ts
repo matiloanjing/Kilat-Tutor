@@ -89,112 +89,160 @@ export async function generateImages(params: ImageGenParams): Promise<ImageGenRe
             console.log(`✅ Optimized: "${finalPrompt.substring(0, 80)}..."`);
         }
 
-        // STEP 3: Generate image(s)
+        // STEP 3: Generate image(s) WITH FALLBACK RETRY
+        const MAX_RETRIES = 3;
+        const attemptedModels: PollinationImageModel[] = [];
+        let currentModel = selectedModel;
+        let lastError: Error | null = null;
+
         const variationsCount = params.options?.variations || 1;
         const images: ImageGenResponse['images'] = [];
         let totalCost = 0;
 
-        if (variationsCount > 1) {
-            // Generate multiple variations with different seeds
-            console.log(`🖼️ Generating ${variationsCount} variations...`);
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                console.log(`🖼️ Attempt ${attempt}/${MAX_RETRIES} with model: ${currentModel}`);
+                attemptedModels.push(currentModel);
 
-            const variations = await generateImageVariations(
-                finalPrompt,
-                variationsCount,
-                {
-                    model: selectedModel,
-                    width: params.options?.width || 1024,
-                    height: params.options?.height || 1024,
-                    enhance: true
+                if (variationsCount > 1) {
+                    // Generate multiple variations with different seeds
+                    console.log(`🖼️ Generating ${variationsCount} variations...`);
+
+                    const variations = await generateImageVariations(
+                        finalPrompt,
+                        variationsCount,
+                        {
+                            model: currentModel,
+                            width: params.options?.width || 1024,
+                            height: params.options?.height || 1024,
+                            enhance: true
+                        }
+                    );
+
+                    for (const variation of variations) {
+                        images.push({
+                            url: variation.url,
+                            base64: variation.base64,
+                            model: currentModel,
+                            seed: variation.seed,
+                            prompt: finalPrompt
+                        });
+                        totalCost += variation.cost;
+                    }
+                } else {
+                    // Generate single image
+                    console.log('🖼️ Generating single image...');
+
+                    const result = await generateImage(
+                        finalPrompt,
+                        {
+                            model: currentModel,
+                            width: params.options?.width || 1024,
+                            height: params.options?.height || 1024,
+                            seed: params.options?.seed,
+                            enhance: true
+                        }
+                    );
+
+                    images.push({
+                        url: result.url,
+                        base64: result.base64,
+                        model: currentModel,
+                        seed: result.seed,
+                        prompt: finalPrompt
+                    });
+                    totalCost = result.cost;
                 }
-            );
 
-            for (const variation of variations) {
-                images.push({
-                    url: variation.url,
-                    base64: variation.base64,
-                    model: selectedModel,
-                    seed: variation.seed,
-                    prompt: finalPrompt
+                // SUCCESS - break out of retry loop
+                const latencyMs = Date.now() - startTime;
+
+                // STEP 4: Log usage with image-specific tracking
+                const { logImageUsage } = await import('@/lib/tracking/pollination-usage');
+                await logImageUsage({
+                    userId: params.userId,
+                    sessionId,
+                    model: currentModel,
+                    imagesGenerated: images.length,
+                    pollenCost: totalCost,
+                    taskInput: params.prompt,
+                    success: true,
+                    latencyMs,
+                    modelAttempts: attemptedModels // Track fallback chain
                 });
-                totalCost += variation.cost;
-            }
-        } else {
-            // Generate single image
-            console.log('🖼️ Generating single image...');
 
-            const result = await generateImage(
-                finalPrompt,
-                {
-                    model: selectedModel,
-                    width: params.options?.width || 1024,
-                    height: params.options?.height || 1024,
-                    seed: params.options?.seed,
-                    enhance: true
+                // Log fallback to AI learning if retry was needed
+                if (attemptedModels.length > 1) {
+                    console.log(`📊 Fallback chain used: ${attemptedModels.join(' → ')}`);
+                    try {
+                        const { syncFallbackPatternToLearning } = await import('@/lib/rag/agent-rag');
+                        await syncFallbackPatternToLearning({
+                            originalModel: attemptedModels[0],
+                            successModel: currentModel,
+                            promptStyle: modelSelection.style,
+                            promptSnippet: finalPrompt.substring(0, 100),
+                            userId: params.userId
+                        });
+                    } catch (learnErr) {
+                        console.warn('Failed to sync fallback to learning:', learnErr);
+                    }
                 }
-            );
 
-            images.push({
-                url: result.url,
-                base64: result.base64,
-                model: selectedModel,
-                seed: result.seed,
-                prompt: finalPrompt
-            });
-            totalCost = result.cost;
+                console.log(`✅ Generated ${images.length} image(s) - Cost: ${totalCost.toFixed(4)} pollen (model: ${currentModel})`);
+
+                return {
+                    sessionId,
+                    status: 'completed',
+                    images,
+                    originalPrompt: params.prompt,
+                    optimizedPrompt: params.options?.enhance !== false ? finalPrompt : undefined,
+                    cost: {
+                        pollen: totalCost,
+                        imagesGenerated: images.length
+                    },
+                    quality: userTier === 'free' ? 'draft' : (params.quality || 'standard')
+                };
+
+            } catch (error) {
+                lastError = error as Error;
+                console.error(`❌ [ImageGen] Attempt ${attempt} failed with ${currentModel}:`, (error as Error).message);
+
+                // Try next fallback model
+                const nextModel = getNextFallback(currentModel, userTier, attemptedModels);
+                if (nextModel && attempt < MAX_RETRIES) {
+                    console.log(`🔄 Fallback: ${currentModel} → ${nextModel}`);
+                    currentModel = nextModel;
+                    // Clear images array for retry
+                    images.length = 0;
+                    totalCost = 0;
+                } else {
+                    console.error(`⚠️ No more fallback models available for ${userTier} tier`);
+                    break; // Exit retry loop
+                }
+            }
         }
 
-        const latencyMs = Date.now() - startTime;
+        // All retries exhausted - log failure and throw
+        console.error(`❌ [ImageGen] All ${MAX_RETRIES} attempts failed. Models tried: ${attemptedModels.join(', ')}`);
 
-        // STEP 4: Log usage with image-specific tracking
-        const { logImageUsage } = await import('@/lib/tracking/pollination-usage');
-        await logImageUsage({
-            userId: params.userId,
-            sessionId,
-            model: selectedModel,
-            imagesGenerated: images.length,
-            pollenCost: totalCost,
-            taskInput: params.prompt,
-            success: true,
-            latencyMs
-        });
-
-        console.log(`✅ Generated ${images.length} image(s) - Cost: ${totalCost.toFixed(4)} pollen`);
-
-        return {
-            sessionId,
-            status: 'completed',
-            images,
-            originalPrompt: params.prompt,
-            optimizedPrompt: params.options?.enhance !== false ? finalPrompt : undefined,
-            cost: {
-                pollen: totalCost,
-                imagesGenerated: images.length
-            },
-            quality: userTier === 'free' ? 'draft' : (params.quality || 'standard')
-        };
-
-    } catch (error) {
-        console.error('ImageGen error:', error);
-
-        // Log failed usage
         try {
             const { logImageUsage } = await import('@/lib/tracking/pollination-usage');
             await logImageUsage({
                 userId: params.userId,
                 sessionId,
-                model: 'flux',
+                model: attemptedModels[attemptedModels.length - 1] || 'flux',
                 imagesGenerated: 0,
                 pollenCost: 0,
                 taskInput: params.prompt,
                 success: false,
-                latencyMs: Date.now() - startTime
+                latencyMs: Date.now() - startTime,
+                modelAttempts: attemptedModels
             });
         } catch (logError) {
             console.error('Failed to log error usage:', logError);
         }
 
-        throw error;
+        throw lastError || new Error(`Image generation failed after ${MAX_RETRIES} attempts. Models tried: ${attemptedModels.join(', ')}`);
     }
 }
 

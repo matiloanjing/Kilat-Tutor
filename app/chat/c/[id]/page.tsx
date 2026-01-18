@@ -18,6 +18,7 @@ import { AgentModeToggle } from '@/components/agents/AgentModeToggle';
 import { AgentSuggestionPanel } from '@/components/agents/AgentSuggestionPanel';
 import { AgentMode } from '@/lib/agents/router';
 import { useDebounce } from 'use-debounce';
+import { useQuota } from '@/hooks/useQuota';
 
 import ChatSidebar from '@/components/ChatSidebar';
 import { ModelSelector } from '@/components/ModelSelector';
@@ -213,6 +214,9 @@ export default function ChatSessionPage({ params }: PageProps) {
     const [userTier, setUserTier] = useState<UserTier>('free');
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [sessionTitle, setSessionTitle] = useState('New Chat');
+
+    // Quota tracking - fetch from API
+    const [quota] = useQuota(user?.id, 'code');
 
     const [suggestions, setSuggestions] = useState<any[]>([]);
     const [debouncedInput] = useDebounce(inputValue, 800);
@@ -687,6 +691,12 @@ export default function ChatSessionPage({ params }: PageProps) {
                                 onAccept={handleAcceptSuggestion}
                                 onSkip={() => setSuggestions([])}
                             />
+
+                            {/* Quota Display */}
+                            <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                                <span className="uppercase tracking-wider">Daily Limit ({quota.tier})</span>
+                                <span className="font-mono">{quota.used}/{quota.limit} used</span>
+                            </div>
 
                             {/* Hidden file inputs */}
                             <input

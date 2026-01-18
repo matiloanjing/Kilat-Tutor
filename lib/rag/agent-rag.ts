@@ -375,6 +375,60 @@ ${codeSnippet}
     }
 }
 
+/**
+ * Sync fallback pattern to learning
+ * Tracks when fallback models succeed so AI can learn better model selection
+ */
+export async function syncFallbackPatternToLearning(params: {
+    originalModel: string;
+    successModel: string;
+    promptStyle: string;
+    promptSnippet: string;
+    userId?: string;
+}): Promise<boolean> {
+    try {
+        const rag = new EnhancedRAG(params.userId);
+
+        const documentText = `
+# Image Generation Fallback Pattern
+
+## Context
+- Original model failed: ${params.originalModel}
+- Success model: ${params.successModel}  
+- Prompt style: ${params.promptStyle}
+
+## Prompt Snippet
+"${params.promptSnippet}"
+
+## Learning
+For "${params.promptStyle}" style prompts, prefer ${params.successModel} over ${params.originalModel} when ${params.originalModel} is unavailable.
+
+## Recorded
+${new Date().toISOString()}
+        `.trim();
+
+        await rag.addDocument({
+            kb_id: 'kb_design', // imagegen shares with design KB
+            text: documentText,
+            metadata: {
+                type: 'fallback_pattern',
+                original_model: params.originalModel,
+                success_model: params.successModel,
+                prompt_style: params.promptStyle,
+                synced_at: new Date().toISOString()
+            },
+            chunk_size: 256
+        });
+
+        console.log(`📊 [RAG Learning] Synced fallback: ${params.originalModel} → ${params.successModel}`);
+        return true;
+
+    } catch (error) {
+        console.error('[RAG Learning] Failed to sync fallback pattern:', error);
+        return false;
+    }
+}
+
 export default {
     agenticRAG,
     ragForDesign,
@@ -384,5 +438,6 @@ export default {
     formatRAGContext,
     syncGeneratedCodeToKB,
     syncTestResultsToLearning,
+    syncFallbackPatternToLearning,
     AGENT_KB_MAP
 };
