@@ -20,6 +20,7 @@ import { AIRateLimiter } from './rate-limiter';
 import { RetryHandler } from './retry-handler';
 import { TierRouter, TaskComplexity, APITier } from './tier-router';
 import { groqProvider } from './providers/groq';
+import { distributedRateLimiter, type ProviderName } from './distributed-rate-limiter';
 
 // ============================================================================
 // Types
@@ -325,6 +326,8 @@ Return as JSON with all files:
                     // PRIMARY: Always try Pollination first
                     if (attempts === 1 || attempts % 2 === 1) {
                         try {
+                            // DISTRIBUTED RATE LIMITING: Wait for Pollination slot
+                            await distributedRateLimiter.waitForSlot('pollinations' as ProviderName, 15000);
 
                             // Import tier-aware model selection
                             const { chatCompletion } = await import('./pollination-client');
@@ -349,14 +352,19 @@ Return as JSON with all files:
                             // LOGGING FIX: Use safeModel to show actual model used
                             console.log(`🎯 Attempt ${attempts}: Using PRIMARY (Pollinations ${safeModel})...`);
 
-                            const response = await chatCompletion(
-                                messages,
-                                {
-                                    model: safeModel,
-                                    enableThinking: request.enableThinking || false
-                                }
-                            );
-                            return response;
+                            try {
+                                const response = await chatCompletion(
+                                    messages,
+                                    {
+                                        model: safeModel,
+                                        enableThinking: request.enableThinking || false
+                                    }
+                                );
+                                return response;
+                            } finally {
+                                // Release rate limiter slot
+                                distributedRateLimiter.releaseSlot('pollinations' as ProviderName);
+                            }
                         } catch (e) {
                             console.warn('⚠️ Pollinations failed:', e instanceof Error ? e.message : String(e));
                             throw e; // Let retry handler catch and try fallback
@@ -368,8 +376,16 @@ Return as JSON with all files:
 
                     if (this.tierRouter.groqFallback.enabled) {
                         try {
-                            const groqResponse = await groqProvider.call({ prompt: request.prompt });
-                            return groqResponse.content;
+                            // DISTRIBUTED RATE LIMITING: Wait for Groq slot (CRITICAL: 30 RPM limit)
+                            await distributedRateLimiter.waitForSlot('groq' as ProviderName, 20000);
+
+                            try {
+                                const groqResponse = await groqProvider.call({ prompt: request.prompt });
+                                return groqResponse.content;
+                            } finally {
+                                // Release rate limiter slot
+                                distributedRateLimiter.releaseSlot('groq' as ProviderName);
+                            }
                         } catch (e) {
                             console.warn('⚠️ Groq fallback failed:', e instanceof Error ? e.message : String(e));
                             throw e; // Let retry handler try Primary again

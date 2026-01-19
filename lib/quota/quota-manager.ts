@@ -44,24 +44,43 @@ interface CacheEntry<T> {
     expires: number;
 }
 
+// Import Redis cache functions
+import {
+    getCachedUserTier,
+    setCachedUserTier,
+    getCachedTierLimits,
+    setCachedTierLimits,
+    getCachedCostLimits,
+    setCachedCostLimits,
+} from '@/lib/cache/redis-cache';
+
 class QuotaManager {
     // =========================================================================
-    // In-Memory Cache (TTL: 30 seconds)
-    // Reduces DB calls for repeated checkQuota/checkCostBudget calls
-    // within same request lifecycle (e.g., multi-agent orchestration)
+    // In-Memory Cache (Fallback when Redis unavailable)
+    // Redis is primary cache (shared across Vercel instances)
     // =========================================================================
     private tierCache = new Map<string, CacheEntry<string>>();
     private limitsCache = new Map<string, CacheEntry<number>>();
     private costLimitsCache = new Map<string, CacheEntry<number>>();
-    private readonly CACHE_TTL_MS = 30_000; // 30 seconds
+    private readonly CACHE_TTL_MS = 30_000; // 30 seconds for in-memory fallback
 
     /**
-     * Get cached tier or fetch from DB
+     * Get cached tier - Redis first, then in-memory, then DB
      */
     private async getCachedTier(userId: string): Promise<string> {
+        // Try Redis first (distributed cache)
+        try {
+            const redisCached = await getCachedUserTier(userId);
+            if (redisCached) {
+                return redisCached;
+            }
+        } catch (e) {
+            // Redis failed, continue to fallbacks
+        }
+
+        // Try in-memory cache
         const cacheKey = userId;
         const cached = this.tierCache.get(cacheKey);
-
         if (cached && cached.expires > Date.now()) {
             return cached.data;
         }
@@ -70,7 +89,13 @@ class QuotaManager {
         const { getUserTier } = await import('@/lib/auth/user-tier');
         const tier = await getUserTier(userId);
 
-        // Cache result
+        // Cache in both Redis and in-memory
+        try {
+            await setCachedUserTier(userId, tier);
+        } catch (e) {
+            // Redis write failed, ignore
+        }
+
         this.tierCache.set(cacheKey, {
             data: tier,
             expires: Date.now() + this.CACHE_TTL_MS
@@ -80,12 +105,22 @@ class QuotaManager {
     }
 
     /**
-     * Get cached daily limit or fetch from DB
+     * Get cached daily limit - Redis first, then in-memory, then DB
      */
     private async getCachedLimit(tier: string, category: string): Promise<number> {
+        // Try Redis first (10 min TTL for tier limits - rarely changes)
+        try {
+            const redisCached = await getCachedTierLimits(tier, category);
+            if (redisCached !== null) {
+                return redisCached;
+            }
+        } catch (e) {
+            // Redis failed, continue to fallbacks
+        }
+
+        // Try in-memory cache
         const cacheKey = `${tier}:${category}`;
         const cached = this.limitsCache.get(cacheKey);
-
         if (cached && cached.expires > Date.now()) {
             return cached.data;
         }
@@ -108,7 +143,13 @@ class QuotaManager {
             else if (tier === 'enterprise') limit = category === 'image' ? 50 : 500;
         }
 
-        // Cache result
+        // Cache in both Redis and in-memory
+        try {
+            await setCachedTierLimits(tier, category, limit);
+        } catch (e) {
+            // Redis write failed, ignore
+        }
+
         this.limitsCache.set(cacheKey, {
             data: limit,
             expires: Date.now() + this.CACHE_TTL_MS
@@ -118,12 +159,22 @@ class QuotaManager {
     }
 
     /**
-     * Get cached cost limit or fetch from DB
+     * Get cached cost limit - Redis first, then in-memory, then DB
      */
     private async getCachedCostLimit(tier: string, category: string): Promise<number> {
+        // Try Redis first (10 min TTL for cost limits - rarely changes)
+        try {
+            const redisCached = await getCachedCostLimits(tier, category);
+            if (redisCached !== null) {
+                return redisCached;
+            }
+        } catch (e) {
+            // Redis failed, continue to fallbacks
+        }
+
+        // Try in-memory cache
         const cacheKey = `cost:${tier}:${category}`;
         const cached = this.costLimitsCache.get(cacheKey);
-
         if (cached && cached.expires > Date.now()) {
             return cached.data;
         }
@@ -140,7 +191,13 @@ class QuotaManager {
         const costLimit = parseFloat(limitData?.max_daily_cost_usd) ||
             (tier === 'free' ? 0.50 : tier === 'pro' ? 2.00 : 25.00);
 
-        // Cache result
+        // Cache in both Redis and in-memory
+        try {
+            await setCachedCostLimits(tier, category, costLimit);
+        } catch (e) {
+            // Redis write failed, ignore
+        }
+
         this.costLimitsCache.set(cacheKey, {
             data: costLimit,
             expires: Date.now() + this.CACHE_TTL_MS

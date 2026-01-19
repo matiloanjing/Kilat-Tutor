@@ -98,16 +98,19 @@ graph TD
 ## 🚀 Key Features
 
 ### 🧠 Multi-Agent AI System
-- **12 Specialized Agents**: 
-  - `Planner` (Architect), `Coder` (Implementation), `Reviewer` (QA)
-  - `Designer` (UI/UX), `Guide` (Docs), `Question` (Tutor)
-- **Intelligent Routing**: Automatic model selection (Gemini, OpenAI, Groq) based on complexity.
+- **13 Specialized Agents**: 
+  - `KilatCode` (Full-stack), `KilatDesign` (UI/UX), `KilatImage` (Media)
+  - `KilatAudit` (Code Review), `KilatDocs` (Documentation), `KilatResearch` (Deep Research)
+  - `KilatWrite` (Content), `KilatSolve` (STEM), `KilatQuestion` (Quiz)
+  - `KilatGuide` (Tutorial), `KilatIdea` (Brainstorm), `KilatCrawl` (Web Scraping), `KilatChat` (General)
+- **Intelligent Routing**: Tier-based model selection (Groq, Pollinations) with automatic fallback.
 - **Self-Healing**: Agents detect errors in generated code and auto-correct them.
+- **Distributed Rate Limiting**: Redis-based limits prevent API bans (100 concurrent users).
 
 ### ⚡ Skynet Learning System (Self-Improving)
 The system gets smarter with every interaction:
 1.  **RLHF (Reinforcement Learning)**: Analyzes user feedback (👍/👎) to adjust prompt strategies.
-2.  **Persistent Cache**: 72-hour Supabase-backed cache to survive Vercel cold starts.
+2.  **Persistent Cache**: 72-hour Supabase + Redis distributed cache to survive Vercel cold starts.
 3.  **Proven Patterns**: Automatically promotes successful code patterns to best practices.
 4.  **User Memory**: Remembers your coding style and preferences across sessions.
 
@@ -131,6 +134,7 @@ A premium, dark-mode-first aesthetic:
 | Frontend | Next.js 14, React 18, TypeScript, TailwindCSS |
 | Backend | Next.js API Routes, Server Actions |
 | Database | Supabase (PostgreSQL) |
+| Cache | Upstash Redis (Distributed) |
 | Auth | NextAuth.js + Supabase Auth |
 | AI | Groq, OpenAI, Gemini, Pollinations API |
 | Editor | Monaco Editor |
@@ -173,12 +177,15 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 
 # AI Models (at least one required)
 GROQ_API_KEY=your_groq_api_key
-OPENAI_API_KEY=your_openai_api_key
-GOOGLE_AI_API_KEY=your_gemini_api_key
+POLLINATION_API_KEY=your_pollination_api_key
+
+# Upstash Redis (Optional - improves scalability)
+UPSTASH_REDIS_REST_URL=your_upstash_url
+UPSTASH_REDIS_REST_TOKEN=your_upstash_token
 
 # Optional
-NEXTAUTH_SECRET=your_nextauth_secret
-NEXTAUTH_URL=http://localhost:3000
+FIRECRAWL_API_KEY=your_firecrawl_token
+JINA_API_KEY=your_jina_token
 ```
 
 ---
@@ -198,7 +205,7 @@ KilatOS/
 │   ├── MonacoEditor/       # Code Editor Wrapper
 │   └── WebContainer/       # Live Preview Runtime
 ├── lib/                    # Core Business Logic
-│   ├── agents/             # 12 AI Agents (Planner, Coder, etc.)
+│   ├── agents/             # 13 AI Agents (KilatCode, KilatDesign, etc.)
 │   ├── cache/              # Caching Layer (Persistent + InMemory)
 │   ├── learning/           # Skynet (RLHF, Self-Improve)
 │   ├── memory/             # User & Session Context
