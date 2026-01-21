@@ -48,6 +48,9 @@ import { suggestAgentsAsync, shouldAutoExecute, type AgentSuggestion } from '@/l
 
 // Self-Learning System (Skynet!)
 import { buildEnhancedPrompt, learnFromResponse } from '@/lib/learning/self-improve';
+
+// Request Tracing (for monitoring + AI learning)
+import { traceLogger, STEP_TYPES } from '@/lib/tracking/trace-logger';
 import { agenticRAG, formatRAGContext, syncGeneratedCodeToKB, syncTestResultsToLearning } from '@/lib/rag/agent-rag';
 
 // Language Rules for multi-language support
@@ -135,6 +138,19 @@ export class MultiAgentOrchestrator {
         }
 
         try {
+            // Start trace for this request
+            const traceId = await traceLogger.startTrace(
+                sessionId,
+                sessionId,
+                userId,
+                'multi-agent',
+                'planning',
+                userRequest
+            );
+
+            // Store traceId for use in catch block
+            (this as any)._currentTraceId = traceId;
+
             // =====================================================
             // CACHE CHECK (Phase 1: Shared cache for instant response)
             // =====================================================
@@ -145,6 +161,8 @@ export class MultiAgentOrchestrator {
                 const persistentResult = await findCachedResponse(userRequest, supabase, 72, 0.7);
                 if (persistentResult && persistentResult.files) {
                     console.log('💾 [Planning] PERSISTENT Cache hit! Returning from job_queue.');
+                    traceLogger.addStep(traceId, STEP_TYPES.CACHE_PERSISTENT, 'hit', { source: 'job_queue' });
+                    await traceLogger.endTrace(traceId, 'success', { file_count: Object.keys(persistentResult.files).length });
                     if (onProgress) await onProgress(100, 'Using cached result...');
                     return {
                         success: true,
@@ -164,6 +182,9 @@ export class MultiAgentOrchestrator {
             const cachedResult = responseCache.findSimilar(userRequest);
             if (cachedResult) {
                 console.log('🚀 [Planning] Cache hit! (Jaccard) Returning cached response.');
+                traceLogger.addStep(traceId, STEP_TYPES.CACHE_JACCARD, 'hit', { similarity: 'high' });
+                await traceLogger.endTrace(traceId, 'success', { file_count: Object.keys(cachedResult.response.files || {}).length });
+                if (onProgress) await onProgress(100, 'Found similar cached result!');
                 return {
                     success: true,
                     projectName: cachedResult.response.projectName || 'cached-project',
@@ -173,11 +194,14 @@ export class MultiAgentOrchestrator {
                     totalDuration: Date.now() - startTime
                 };
             }
+            traceLogger.addStep(traceId, STEP_TYPES.CACHE_JACCARD, 'miss');
 
             // 2. Try Semantic cache (slower, meaning-based match) - FIX: This was NEVER CALLED before!
             const semanticResult = await semanticCache.findSimilar(userRequest, 0.8);
             if (semanticResult) {
                 console.log('🧠 [Planning] Cache hit! (Semantic) Returning cached response.');
+                traceLogger.addStep(traceId, STEP_TYPES.CACHE_SEMANTIC, 'hit', { type: 'semantic' });
+                await traceLogger.endTrace(traceId, 'success', { file_count: Object.keys(semanticResult.response.files || {}).length });
                 return {
                     success: true,
                     projectName: semanticResult.response.projectName || 'cached-project',
@@ -187,11 +211,13 @@ export class MultiAgentOrchestrator {
                     totalDuration: Date.now() - startTime
                 };
             }
+            traceLogger.addStep(traceId, STEP_TYPES.CACHE_SEMANTIC, 'miss');
 
             // Track session start
             await trackSessionStart(userId, sessionId, { deviceType: 'api' });
             // Step 0: Retrieve RAG context for enhanced code generation
             let ragContext: RAGResult | null = null;
+            const ragStartTime = Date.now();
             try {
                 if (this.enableLogging) {
                     console.log('   📚 RAG: Retrieving context...');
@@ -206,8 +232,15 @@ export class MultiAgentOrchestrator {
                 if (this.enableLogging) {
                     console.log(`   ✅ RAG: Found ${ragContext.examples.length} examples, ${ragContext.bestPractices.length} best practices`);
                 }
+                traceLogger.addStep(traceId, STEP_TYPES.RAG_RETRIEVAL, 'success', {
+                    examples: ragContext.examples.length,
+                    practices: ragContext.bestPractices.length
+                }, Date.now() - ragStartTime);
             } catch (ragError) {
                 console.warn('   ⚠️ RAG context retrieval failed, continuing without:', ragError);
+                traceLogger.addStep(traceId, STEP_TYPES.RAG_RETRIEVAL, 'error', {
+                    error: ragError instanceof Error ? ragError.message : 'unknown'
+                }, Date.now() - ragStartTime);
             }
 
             // =====================================================
@@ -307,6 +340,7 @@ export class MultiAgentOrchestrator {
 
             responseCache.set(userRequest, finalResult, 'complex');
             console.log('   💾 [Planning] Response cached for future queries.');
+            traceLogger.addStep(traceId, STEP_TYPES.CACHE_SAVE, 'response', { type: 'response_cache' });
 
             // AI LEARNING: Sync generated code to KB for future RAG examples
             fireAndForget(() => syncGeneratedCodeToKB(userRequest, verificationResult.files, 'codegen'));
@@ -320,9 +354,22 @@ export class MultiAgentOrchestrator {
                 ));
             }
 
+            // End trace with success
+            await traceLogger.endTrace(traceId, 'success', {
+                file_count: Object.keys(verificationResult.files).length
+            });
+
             return finalResult;
 
         } catch (error) {
+            // End trace with error
+            const traceId = (this as any)._currentTraceId;
+            if (traceId) {
+                await traceLogger.endTrace(traceId, 'error', {
+                    error_message: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+
             return {
                 success: false,
                 projectName: 'error',
@@ -504,6 +551,19 @@ export class MultiAgentOrchestrator {
         }
 
         try {
+            // Start trace for fast mode
+            const traceId = await traceLogger.startTrace(
+                sessionId,
+                sessionId,
+                userId,
+                'fast-mode',
+                'fast',
+                userRequest
+            );
+
+            // Store traceId for use in catch block
+            (this as any)._currentTraceId = traceId;
+
             // =====================================================
             // CACHE CHECK (Phase 1: Shared cache for instant response)
             // =====================================================
@@ -514,6 +574,8 @@ export class MultiAgentOrchestrator {
                 const persistentResult = await findCachedResponse(userRequest, supabase, 72, 0.7);
                 if (persistentResult && persistentResult.files) {
                     console.log('💾 [Fast] PERSISTENT Cache hit! Returning from job_queue.');
+                    traceLogger.addStep(traceId, STEP_TYPES.CACHE_PERSISTENT, 'hit', { source: 'job_queue' });
+                    await traceLogger.endTrace(traceId, 'success', { file_count: Object.keys(persistentResult.files).length });
                     return {
                         success: true,
                         projectName: 'cached-project',
@@ -523,6 +585,7 @@ export class MultiAgentOrchestrator {
                         totalDuration: Date.now() - startTime
                     };
                 }
+                traceLogger.addStep(traceId, STEP_TYPES.CACHE_PERSISTENT, 'miss');
             } catch (persistentError) {
                 console.warn('[Fast] Persistent cache check failed:', persistentError);
             }
@@ -531,6 +594,8 @@ export class MultiAgentOrchestrator {
             const cachedResult = responseCache.findSimilar(userRequest);
             if (cachedResult) {
                 console.log('🚀 [Fast] Cache hit! (Jaccard) Returning cached response.');
+                traceLogger.addStep(traceId, STEP_TYPES.CACHE_JACCARD, 'hit', { type: 'jaccard' });
+                await traceLogger.endTrace(traceId, 'success', { file_count: Object.keys(cachedResult.response.files || {}).length });
                 // Prefetch related patterns in background (NON-BLOCKING) - defaults to 'free' tier
                 fireAndForget(() => prefetchRelatedPatterns(sessionId, userRequest, 'free'));
                 return {
@@ -542,11 +607,14 @@ export class MultiAgentOrchestrator {
                     totalDuration: Date.now() - startTime
                 };
             }
+            traceLogger.addStep(traceId, STEP_TYPES.CACHE_JACCARD, 'miss');
 
             // Phase 1b: Semantic similarity (slower, uses embeddings)
             const semanticResult = await semanticCache.findSimilar(userRequest, 0.85);
             if (semanticResult) {
                 console.log('🧠 [Fast] Cache hit! (Semantic) Returning cached response.');
+                traceLogger.addStep(traceId, STEP_TYPES.CACHE_SEMANTIC, 'hit', { type: 'semantic' });
+                await traceLogger.endTrace(traceId, 'success', { file_count: Object.keys(semanticResult.response.files || {}).length });
                 return {
                     success: true,
                     projectName: semanticResult.response.projectName || 'semantic-cached',
@@ -556,6 +624,7 @@ export class MultiAgentOrchestrator {
                     totalDuration: Date.now() - startTime
                 };
             }
+            traceLogger.addStep(traceId, STEP_TYPES.CACHE_SEMANTIC, 'miss');
 
             // =====================================================
             // LIGHTWEIGHT RAG (Phase 2: RAG in Fast Mode)
@@ -685,6 +754,7 @@ AFTER COMPLETING THE TASK, always end with Next Steps section:
                 console.log(`   🧠 [Fast] Self-learning: +${enhanced.totalEnhancements} enhancements applied`);
             }
 
+            const aiStartTime = Date.now();
             const result = await aiMandor.call({
                 prompt: optimized.userPrompt + (contextSection || ''),
                 systemPrompt: enhanced.systemPrompt,  // ENHANCED: RLHF + Memory + Patterns
@@ -694,6 +764,10 @@ AFTER COMPLETING THE TASK, always end with Next Steps section:
                 userId: this.currentUserId, // Propagate userId for tier detection
                 enableThinking: false // FAST MODE: Thinking Disabled
             });
+            traceLogger.addStep(traceId, STEP_TYPES.AI_CALL, 'success', {
+                model: modelToUse,
+                mode: 'fast'
+            }, Date.now() - aiStartTime);
 
             // Extract files from response
             let files = this.extractFiles(result.result);
@@ -776,6 +850,7 @@ AFTER COMPLETING THE TASK, always end with Next Steps section:
             // AI LEARNING: Sync generated code to KB for future RAG examples
             fireAndForget(() => syncGeneratedCodeToKB(userRequest, files, 'fast-mode'));
             console.log('   💾 [Fast] Response cached + KB synced for AI learning.');
+            traceLogger.addStep(traceId, STEP_TYPES.CACHE_SAVE, 'response', { type: 'fast_cache' });
 
             // AI LEARNING: Sync test results if available
             if (verificationResult.testResults) {
@@ -786,11 +861,24 @@ AFTER COMPLETING THE TASK, always end with Next Steps section:
                 ));
             }
 
+            // End trace with success
+            await traceLogger.endTrace(traceId, 'success', {
+                file_count: Object.keys(files).length
+            });
+
             return finalResult;
 
         } catch (error) {
             if (this.enableLogging) {
                 console.log(`   ❌ Fast execution failed: ${error}`);
+            }
+
+            // End trace with error
+            const traceId = (this as any)._currentTraceId;
+            if (traceId) {
+                await traceLogger.endTrace(traceId, 'error', {
+                    error_message: error instanceof Error ? error.message : 'Unknown error'
+                });
             }
 
             return {

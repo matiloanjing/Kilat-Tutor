@@ -20,6 +20,10 @@
         {
             "path": "/api/cron/rlhf-process",
             "schedule": "0 4 * * *"
+        },
+        {
+            "path": "/api/cron/cleanup-traces",
+            "schedule": "0 5 * * *"
         }
     ],
     "env": {

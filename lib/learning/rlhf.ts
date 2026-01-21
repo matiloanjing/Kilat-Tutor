@@ -218,30 +218,141 @@ ${adjustments.map((a, i) => `${i + 1}. ${a}`).join('\n')}
 }
 
 // ============================================================================
+// Error Pattern Extraction (from failed usage logs)
+// ============================================================================
+
+interface ErrorPattern {
+    agent_type: string;
+    error_type: string;
+    count: number;
+    failed_checks: string[];
+}
+
+/**
+ * Extract error patterns from failed usage logs
+ * Analyzes agent_usage_logs where success=false
+ */
+export async function extractErrorPatterns(
+    daysBack: number = 7
+): Promise<ErrorPattern[]> {
+    const supabase = await createClient();
+
+    const since = new Date();
+    since.setDate(since.getDate() - daysBack);
+
+    // Get failed usage logs
+    const { data: failedLogs, error } = await supabase
+        .from('agent_usage_logs')
+        .select('agent_type, model_used, task_category, failed_quality_checks')
+        .eq('success', false)
+        .gte('created_at', since.toISOString());
+
+    if (error || !failedLogs) {
+        console.error('[RLHF] Failed to fetch error logs:', error);
+        return [];
+    }
+
+    // Group by agent_type + error type
+    const patterns = new Map<string, ErrorPattern>();
+
+    for (const log of failedLogs) {
+        const failedChecks = log.failed_quality_checks || [];
+        const errorType = failedChecks.length > 0
+            ? failedChecks.join(', ')
+            : 'unknown_error';
+        const key = `${log.agent_type}_${errorType}`;
+
+        if (!patterns.has(key)) {
+            patterns.set(key, {
+                agent_type: log.agent_type || 'unknown',
+                error_type: errorType,
+                count: 0,
+                failed_checks: failedChecks
+            });
+        }
+
+        patterns.get(key)!.count++;
+    }
+
+    return Array.from(patterns.values());
+}
+
+/**
+ * Save error patterns as anti-patterns to proven_patterns
+ * Uses success_rate=0 to mark as error pattern
+ */
+export async function saveErrorPatterns(
+    patterns: ErrorPattern[]
+): Promise<number> {
+    if (patterns.length === 0) return 0;
+
+    const supabase = await createClient();
+    let saved = 0;
+
+    for (const pattern of patterns) {
+        // Only save patterns with at least 2 occurrences
+        if (pattern.count < 2) continue;
+
+        const patternName = `error:${pattern.error_type.substring(0, 50)}`;
+        const patternContent = `AVOID: ${pattern.failed_checks.join(', ')}`;
+
+        const { error } = await supabase
+            .from('proven_patterns')
+            .upsert({
+                agent_type: pattern.agent_type,
+                pattern_name: patternName,
+                pattern_content: patternContent,
+                success_rate: 0, // 0 = error pattern
+                usage_count: pattern.count,
+                is_active: true,
+                updated_at: new Date().toISOString()
+            }, {
+                onConflict: 'agent_type,pattern_name,version'
+            });
+
+        if (!error) saved++;
+    }
+
+    return saved;
+}
+
+// ============================================================================
 // Main RLHF Processing (for cron job)
 // ============================================================================
 
 export async function runRLHFProcessing(): Promise<{
     patterns_found: number;
     adjustments_saved: number;
+    error_patterns_found: number;
+    error_patterns_saved: number;
 }> {
     console.log('🧠 [RLHF] Starting feedback analysis...');
 
-    // Analyze last 7 days of feedback
+    // 1. Analyze feedback patterns (existing)
     const patterns = await analyzeFeedbackPatterns(7);
     console.log(`📊 [RLHF] Found ${patterns.length} feedback patterns`);
 
-    // Generate adjustments
+    // 2. Generate adjustments (existing)
     const adjustments = await generateAdjustments(patterns);
     console.log(`✨ [RLHF] Generated ${adjustments.length} adjustments`);
 
-    // Save to database
+    // 3. Save adjustments (existing)
     const saved = await saveAdjustments(adjustments);
     console.log(`💾 [RLHF] Saved ${saved} adjustments`);
 
+    // 4. Extract error patterns (NEW)
+    const errorPatterns = await extractErrorPatterns(7);
+    console.log(`🔴 [RLHF] Found ${errorPatterns.length} error patterns`);
+
+    // 5. Save error patterns (NEW)
+    const errorSaved = await saveErrorPatterns(errorPatterns);
+    console.log(`💾 [RLHF] Saved ${errorSaved} error patterns as anti-patterns`);
+
     return {
         patterns_found: patterns.length,
-        adjustments_saved: saved
+        adjustments_saved: saved,
+        error_patterns_found: errorPatterns.length,
+        error_patterns_saved: errorSaved
     };
 }
 
@@ -251,5 +362,7 @@ export default {
     saveAdjustments,
     getActiveAdjustments,
     injectRLHFContext,
+    extractErrorPatterns,
+    saveErrorPatterns,
     runRLHFProcessing
 };

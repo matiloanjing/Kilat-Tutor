@@ -15,8 +15,10 @@ interface LLMModel { model_id: string; display_name: string; provider: string; m
 interface TierLimit { id: string; tier: string; agent_id: string; limit_daily: number; limit_monthly: number; max_daily_cost_usd: string; enabled: boolean; }
 interface Summary { todayRequests: number; todayCost: number; todayUsers: number; totalUsers: number; }
 interface SecurityAlert { id: string; event_type: string; user_id?: string; severity: string; details: any; created_at: string; }
+interface RequestTrace { id: string; job_id: string; session_id?: string; user_id?: string; agent_type: string; mode?: string; prompt_preview?: string; steps: any[]; status: string; total_duration_ms?: number; cache_hits: number; cache_misses: number; error_message?: string; created_at: string; }
+interface TraceStats { todayTotal: number; todaySuccess: number; todayErrors: number; avgDuration: number; totalCacheHits: number; totalCacheMisses: number; }
 
-type TabId = 'overview' | 'models' | 'tiers' | 'settings' | 'security';
+type TabId = 'overview' | 'models' | 'tiers' | 'settings' | 'security' | 'traces';
 
 export default function AdminPage() {
     const { user } = useAuth();
@@ -40,6 +42,9 @@ export default function AdminPage() {
     const [editingConfig, setEditingConfig] = useState<any | null>(null);
     const [securityAlerts, setSecurityAlerts] = useState<SecurityAlert[]>([]);
     const [securitySummary, setSecuritySummary] = useState<any>({});
+    const [traces, setTraces] = useState<RequestTrace[]>([]);
+    const [traceStats, setTraceStats] = useState<TraceStats>({ todayTotal: 0, todaySuccess: 0, todayErrors: 0, avgDuration: 0, totalCacheHits: 0, totalCacheMisses: 0 });
+    const [expandedTrace, setExpandedTrace] = useState<string | null>(null);
 
     // Fetch all data
     useEffect(() => {
@@ -76,6 +81,14 @@ export default function AdminPage() {
                     const data = await securityRes.json();
                     setSecurityAlerts(data.alerts || []);
                     setSecuritySummary(data.summary || {});
+                }
+
+                // Fetch traces
+                const tracesRes = await fetch('/api/admin/traces');
+                if (tracesRes.ok) {
+                    const data = await tracesRes.json();
+                    setTraces(data.traces || []);
+                    setTraceStats(data.stats || { todayTotal: 0, todaySuccess: 0, todayErrors: 0, avgDuration: 0, totalCacheHits: 0, totalCacheMisses: 0 });
                 }
             } catch (err) { console.error('Load error:', err); }
             setLoading(false);
@@ -118,6 +131,7 @@ export default function AdminPage() {
         { id: 'tiers', label: 'Tier Limits', icon: 'tune' },
         { id: 'settings', label: 'Settings', icon: 'settings' },
         { id: 'security', label: 'Security', icon: 'shield' },
+        { id: 'traces', label: 'Traces', icon: 'timeline' },
     ];
 
     return (
@@ -341,6 +355,92 @@ export default function AdminPage() {
                                                 ))}
                                             </tbody>
                                         </table>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Traces Tab */}
+                        {activeTab === 'traces' && (
+                            <div className="space-y-6 animate-fade-in">
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                    <StatCard icon="timeline" label="Today's Traces" value={traceStats.todayTotal} color="purple" />
+                                    <StatCard icon="check_circle" label="Successful" value={traceStats.todaySuccess} color="cyan" />
+                                    <StatCard icon="error" label="Errors" value={traceStats.todayErrors} color="pink" />
+                                    <StatCard icon="speed" label="Avg Duration" value={`${Math.round(traceStats.avgDuration / 1000 * 10) / 10}s`} color="blue" />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="glass rounded-xl p-4">
+                                        <div className="flex items-center gap-2 text-green-400">
+                                            <span className="material-symbols-outlined">cached</span>
+                                            <span>Cache Hits</span>
+                                        </div>
+                                        <p className="text-2xl font-bold mt-2">{traceStats.totalCacheHits}</p>
+                                    </div>
+                                    <div className="glass rounded-xl p-4">
+                                        <div className="flex items-center gap-2 text-orange-400">
+                                            <span className="material-symbols-outlined">storage</span>
+                                            <span>Cache Misses</span>
+                                        </div>
+                                        <p className="text-2xl font-bold mt-2">{traceStats.totalCacheMisses}</p>
+                                    </div>
+                                </div>
+
+                                <div className="glass rounded-2xl p-6">
+                                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-purple-400">timeline</span>
+                                        Recent Request Traces
+                                    </h3>
+                                    <div className="space-y-2 max-h-[500px] overflow-y-auto scrollbar-custom">
+                                        {traces.length === 0 ? (
+                                            <p className="text-center text-gray-500 py-10">No traces recorded yet. Make some requests to see traces.</p>
+                                        ) : traces.slice(0, 50).map((trace) => (
+                                            <div key={trace.id} className="border border-white/10 rounded-lg overflow-hidden">
+                                                <button
+                                                    onClick={() => setExpandedTrace(expandedTrace === trace.id ? null : trace.id)}
+                                                    className="w-full p-3 flex items-center justify-between hover:bg-white/5 transition-colors"
+                                                >
+                                                    <div className="flex items-center gap-3">
+                                                        <span className={`material-symbols-outlined ${trace.status === 'success' ? 'text-green-400' : trace.status === 'error' ? 'text-red-400' : 'text-yellow-400'}`}>
+                                                            {trace.status === 'success' ? 'check_circle' : trace.status === 'error' ? 'error' : 'pending'}
+                                                        </span>
+                                                        <span className="font-mono text-xs text-gray-400">{trace.job_id.substring(0, 8)}...</span>
+                                                        <span className="text-primary">{trace.agent_type}</span>
+                                                        <span className="text-xs px-2 py-0.5 rounded bg-white/10">{trace.mode}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-4 text-sm">
+                                                        <span className="text-gray-400">{trace.total_duration_ms ? `${(trace.total_duration_ms / 1000).toFixed(1)}s` : '-'}</span>
+                                                        <span className="text-green-400">{trace.cache_hits} hits</span>
+                                                        <span className="text-orange-400">{trace.cache_misses} miss</span>
+                                                        <span className="text-gray-500">{new Date(trace.created_at).toLocaleTimeString()}</span>
+                                                        <span className="material-symbols-outlined text-gray-400">
+                                                            {expandedTrace === trace.id ? 'expand_less' : 'expand_more'}
+                                                        </span>
+                                                    </div>
+                                                </button>
+                                                {expandedTrace === trace.id && (
+                                                    <div className="p-4 bg-black/30 border-t border-white/10">
+                                                        <p className="text-xs text-gray-400 mb-3 truncate">Prompt: {trace.prompt_preview}</p>
+                                                        {trace.error_message && (
+                                                            <p className="text-xs text-red-400 mb-3">Error: {trace.error_message}</p>
+                                                        )}
+                                                        <div className="space-y-1">
+                                                            {(trace.steps || []).map((step: any, idx: number) => (
+                                                                <div key={idx} className="flex items-center gap-2 text-xs">
+                                                                    <span className="text-gray-500 w-16">{step.duration_ms || 0}ms</span>
+                                                                    <span className={`w-28 ${step.result === 'hit' ? 'text-green-400' : step.result === 'miss' ? 'text-orange-400' : step.result === 'error' ? 'text-red-400' : 'text-gray-300'}`}>
+                                                                        {step.step}
+                                                                    </span>
+                                                                    <span className="text-gray-400">{step.result}</span>
+                                                                    {step.details && <span className="text-gray-600 truncate max-w-xs">{JSON.stringify(step.details)}</span>}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             </div>
