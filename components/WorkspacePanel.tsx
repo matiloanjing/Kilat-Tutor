@@ -233,29 +233,7 @@ export default function WorkspacePanel({
                 {/* Preview Tab - WebContainer or Console based on file type */}
                 {activeTab === 'preview' && hasPreview && (
                     <div className="h-full flex flex-col">
-                        {/* Preview URL Bar (Lovable-style) */}
-                        {previewMode === 'webcontainer' && (
-                            <div className="h-10 bg-[#252526] border-b border-[#3c3c3c] flex items-center px-3 gap-2 shrink-0">
-                                <div className="flex gap-1.5">
-                                    <span className="w-3 h-3 rounded-full bg-red-500/70"></span>
-                                    <span className="w-3 h-3 rounded-full bg-yellow-500/70"></span>
-                                    <span className="w-3 h-3 rounded-full bg-green-500/70"></span>
-                                </div>
-                                <div className="flex-1 bg-obsidian rounded px-3 py-1.5 text-xs text-slate-400 font-mono flex items-center">
-                                    <span className="text-green-400 mr-1">🔒</span>
-                                    {previewUrl || 'localhost:3000'}
-                                </div>
-                                {previewUrl && (
-                                    <button
-                                        onClick={() => window.open(previewUrl, '_blank')}
-                                        className="p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                                        title="Open in new tab"
-                                    >
-                                        <span className="material-symbols-outlined text-sm">open_in_new</span>
-                                    </button>
-                                )}
-                            </div>
-                        )}
+                        {/* URL bar handled by WebContainerPreview */}
 
                         {/* Preview Content */}
                         <div className="flex-1 min-h-0">
