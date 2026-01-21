@@ -330,6 +330,75 @@ function getStartCommand(framework: FrameworkTemplate): { cmd: string; args: str
     }
 }
 
+// === SANITIZE JSX/TSX SYNTAX ===
+// Fix common AI-generated code syntax errors (like Lovable/Bolt does)
+function sanitizeJSXSyntax(content: string, filename: string): string {
+    // Only process JSX/TSX/JS/TS files
+    if (!/\.(jsx?|tsx?)$/.test(filename)) return content;
+
+    let fixed = content;
+    let fixCount = 0;
+
+    // 1. Fix malformed imports: `import { useState from 'react'` -> `import { useState } from 'react'`
+    fixed = fixed.replace(/import\s*\{\s*([^}]+)\s+from\s+(['"])/g, (match, imports, quote) => {
+        fixCount++;
+        return `import { ${imports.trim()} } from ${quote}`;
+    });
+
+    // 2. Fix missing semicolons after imports
+    fixed = fixed.replace(/(import\s+.*?from\s+['"][^'"]+['"])(?!\s*;)(\s*\n)/g, (match, importStmt, newline) => {
+        fixCount++;
+        return `${importStmt};${newline}`;
+    });
+
+    // 3. Fix incomplete interface/type definitions (common AI cutoff)
+    // Pattern: `interface X {\n  prop: string\n` (missing closing brace)
+    // This is harder to fix generically, so we just ensure basic structure
+
+    // 4. Fix dangling commas in object/array (not an error in JS, but clean up)
+    fixed = fixed.replace(/,(\s*[}\]])/g, '$1');
+
+    // 5. Fix double semicolons
+    fixed = fixed.replace(/;;+/g, ';');
+
+    // 6. Fix common JSX issues: self-closing tags without space
+    fixed = fixed.replace(/<(\w+)([^>]*[^\s\/])\/>/g, '<$1$2 />');
+
+    // 7. Fix missing closing tags for common elements (basic heuristic)
+    // This is complex - skip for now, let Vite handle it
+
+    // 8. Remove BOM and weird Unicode characters
+    fixed = fixed.replace(/^\uFEFF/, '');
+    fixed = fixed.replace(/[\u200B-\u200F\uFEFF]/g, '');
+
+    // 9. Fix React component without return (add return if function body is JSX)
+    // Pattern: `function App() {\n  <div>` -> `function App() {\n  return (<div>`
+    fixed = fixed.replace(
+        /((?:function\s+\w+|const\s+\w+\s*=\s*(?:\([^)]*\)|[^=]+)\s*=>)\s*\{)\s*\n(\s*)(<[A-Z])/g,
+        '$1\n$2return (\n$2  $3'
+    );
+
+    // 10. Ensure export default exists for main component files
+    if (/App\.(jsx?|tsx?)$/.test(filename) && !fixed.includes('export default')) {
+        // Find the main function/const component
+        const componentMatch = fixed.match(/(?:function|const)\s+(\w+)/);
+        if (componentMatch) {
+            const componentName = componentMatch[1];
+            // Add export default at end if not present
+            if (!fixed.includes(`export default ${componentName}`)) {
+                fixed = fixed.trimEnd() + `\n\nexport default ${componentName};\n`;
+                fixCount++;
+            }
+        }
+    }
+
+    if (fixCount > 0) {
+        console.log(`🔧 [SyntaxFix] Fixed ${fixCount} issues in ${filename}`);
+    }
+
+    return fixed;
+}
+
 // === SANITIZE FILE PATH ===
 // Fixes: "Error: EIO: invalid file name" in WebContainer
 function sanitizeFilePath(path: string): string {
@@ -479,7 +548,9 @@ export default function WebContainerPreview({
 
                         // Add file at the end
                         const fileName = parts[parts.length - 1];
-                        current[fileName] = { file: { contents: content } };
+                        // CRITICAL: Sanitize JSX/TSX syntax BEFORE mounting (Lovable/Bolt-style auto-fix)
+                        const sanitizedContent = sanitizeJSXSyntax(content, fileName);
+                        current[fileName] = { file: { contents: sanitizedContent } };
                     }
 
                     return tree;
