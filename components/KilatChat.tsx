@@ -910,24 +910,34 @@ export default function KilatChat({
         }
     };
 
-    // Handle regenerate (🔄)
+    // Handle regenerate (🔄) - with debounce
+    const [isRegenerating, setIsRegenerating] = useState(false);
     const handleRegenerate = async (messageId: string) => {
-        // Find the user message before this assistant message
-        const messageIndex = messages.findIndex(m => m.id === messageId);
-        if (messageIndex <= 0) return;
+        // DEBOUNCE: Prevent double click
+        if (isRegenerating || isLoading) return;
+        setIsRegenerating(true);
 
-        const userMessage = messages[messageIndex - 1];
-        if (userMessage.role !== 'user') return;
+        try {
+            // Find the user message before this assistant message
+            const messageIndex = messages.findIndex(m => m.id === messageId);
+            if (messageIndex <= 0) return;
 
-        // Remove the old response
-        setMessages(prev => prev.slice(0, messageIndex));
+            const userMessage = messages[messageIndex - 1];
+            if (userMessage.role !== 'user') return;
 
-        // Re-submit the user message
-        setInput(userMessage.content);
-        setTimeout(() => {
-            const form = document.querySelector('form');
-            form?.dispatchEvent(new Event('submit', { bubbles: true }));
-        }, 100);
+            // Remove the old response
+            setMessages(prev => prev.slice(0, messageIndex));
+
+            // Re-submit the user message
+            setInput(userMessage.content);
+            setTimeout(() => {
+                const form = document.querySelector('form');
+                form?.dispatchEvent(new Event('submit', { bubbles: true }));
+            }, 100);
+        } finally {
+            // Reset after short delay to prevent rapid re-clicks
+            setTimeout(() => setIsRegenerating(false), 2000);
+        }
     };
 
     return (

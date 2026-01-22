@@ -989,17 +989,33 @@ ${conversationContext ? `Previous conversation and context:\n${conversationConte
             });
         }
 
-        // Update with result (common for both modes)
-        // DEBUG: Log what content is being saved
-        console.log('🔍 [DEBUG] outputContent preview:', outputContent?.substring(0, 200));
-        console.log('🔍 [DEBUG] filesObject keys:', filesObject ? Object.keys(filesObject).length : 0);
+        // =====================================================
+        // FIX 2026-01-22: Check if orchestration actually succeeded
+        // Before: Always marked "completed" even on failure
+        // After: Check outputContent for error patterns
+        // NOTE: Don't fail just because no files - chat agents don't produce files!
+        // =====================================================
+        const errorPatterns = [
+            'orchestration failed',
+            'Rate limit timeout',
+            'Failed after 3 attempts',
+            'Multi-agent orchestration failed'
+        ];
+        const hasErrorPattern = errorPatterns.some(p => outputContent?.includes(p));
+        const isActuallyFailed = hasErrorPattern || !outputContent || outputContent.length < 10;
+
+        const jobStatus = isActuallyFailed ? 'failed' : 'completed';
+        const jobStep = isActuallyFailed ? 'Failed - see error message' : 'Done!';
+
+        console.log(`📊 [Job] Final status: ${jobStatus}, hasFiles: ${!!filesObject}, hasError: ${hasErrorPattern}`);
 
         await jobQueue.updateJob(jobId, {
-            status: 'completed',
-            progress: 100,
-            currentStep: 'Done!',
+            status: jobStatus,
+            progress: isActuallyFailed ? 99 : 100,
+            currentStep: jobStep,
             outputContent: outputContent,
             files: filesObject,
+            errorMessage: isActuallyFailed ? outputContent : undefined,
             metadata: { mode }  // Include mode in metadata for AI training
         });
 

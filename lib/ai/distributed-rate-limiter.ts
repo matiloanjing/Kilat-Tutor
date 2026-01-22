@@ -146,23 +146,27 @@ class DistributedRateLimiter {
             redis.get<number>(concurrentKey),
         ]);
 
-        const windowStartMs = windowStart || now;
-        const count = currentCount || 0;
+        // FIX 2026-01-22: If window is null (expired), MUST reset count
+        // Before: windowStart || now caused count to never reset
+        // After: Explicitly check for null and reset
         const currentConcurrent = concurrent || 0;
 
-        // Check if window expired
-        if (now - windowStartMs >= limits.windowMs) {
-            // New window - reset count
+        // If window expired or null, start fresh window
+        if (!windowStart || Date.now() - windowStart >= limits.windowMs) {
+            const now = Date.now();
             await Promise.all([
                 redis.set(windowKey, now, { ex: Math.ceil(limits.windowMs / 1000) }),
                 redis.set(countKey, 1, { ex: Math.ceil(limits.windowMs / 1000) }),
             ]);
+            console.log(`[RateLimiter] ${provider}: New window started, count reset to 1`);
             return { allowed: true, remaining: limits.maxRPM - 1, resetMs: limits.windowMs };
         }
 
+        const count = currentCount || 0;
+
         // Check RPM limit
         if (count >= limits.maxRPM) {
-            const resetMs = limits.windowMs - (now - windowStartMs);
+            const resetMs = limits.windowMs - (Date.now() - windowStart);
             return { allowed: false, remaining: 0, resetMs };
         }
 
@@ -180,7 +184,7 @@ class DistributedRateLimiter {
         return {
             allowed: true,
             remaining: limits.maxRPM - count - 1,
-            resetMs: limits.windowMs - (now - windowStartMs)
+            resetMs: limits.windowMs - (Date.now() - windowStart)
         };
     }
 
