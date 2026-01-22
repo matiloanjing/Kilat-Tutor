@@ -992,9 +992,34 @@ Return JSON ONLY (no markdown):
             // Get tasks for this group
             const tasksToRun = plan.subTasks.filter(t => group.includes(t.id));
 
-            // Execute in parallel using Promise.all
+            // Execute in parallel using Promise.all with individual timeouts
+            // FIX 2026-01-22: Add 60s timeout per agent to prevent entire group from hanging
+            const AGENT_TIMEOUT = 60000; // 60 seconds per agent
+
             const groupResults = await Promise.all(
-                tasksToRun.map(task => this.executeAgent(task, allResults, ragContext, userId, sessionId, selectedModel))
+                tasksToRun.map(async task => {
+                    const timeoutPromise = new Promise<AgentResult>((_, reject) =>
+                        setTimeout(() => reject(new Error(`Agent ${task.agent} timeout after 60s`)), AGENT_TIMEOUT)
+                    );
+
+                    try {
+                        return await Promise.race([
+                            this.executeAgent(task, allResults, ragContext, userId, sessionId, selectedModel),
+                            timeoutPromise
+                        ]);
+                    } catch (error) {
+                        console.warn(`   ⚠️ [Parallel] Agent ${task.agent} failed or timed out:`, error);
+                        // Return failed result instead of crashing
+                        return {
+                            taskId: task.id,
+                            agent: task.agent,
+                            success: false,
+                            output: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                            files: {},
+                            duration: AGENT_TIMEOUT
+                        };
+                    }
+                })
             );
 
             allResults.push(...groupResults);
