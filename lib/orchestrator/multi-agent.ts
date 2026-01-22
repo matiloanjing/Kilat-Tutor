@@ -1468,6 +1468,26 @@ Note: Research output does not need code files unless providing examples.`;
             console.log('   🕵️ Verifier: Reviewing code and validating libraries...');
         }
 
+        // FIX 2026-01-22: Add 45s timeout to prevent Vercel function timeout
+        // Vercel hobby = 60s, pro = 300s. Leave buffer for merge step.
+        const VERIFY_CHAIN_TIMEOUT = 45000;
+        const timeoutPromise = new Promise<AgentResult[]>((_, reject) =>
+            setTimeout(() => reject(new Error('VerifyChain timeout - skipping verification')), VERIFY_CHAIN_TIMEOUT)
+        );
+
+        try {
+            return await Promise.race([
+                this.doVerifyChain(plan, results, selectedModel),
+                timeoutPromise
+            ]);
+        } catch (error) {
+            console.warn('   ⚠️ [VerifyChain] Timeout or error, returning unverified results');
+            return results; // Return original results on timeout
+        }
+    }
+
+    // Extracted actual verify logic
+    private async doVerifyChain(plan: TaskPlan, results: AgentResult[], selectedModel?: string): Promise<AgentResult[]> {
         const verifiedResults: AgentResult[] = [];
 
         // Verify key coding tasks (design, frontend, backend, database)

@@ -33,8 +33,9 @@ export interface VerificationError {
 // Constants
 // ============================================================================
 
+// FIX 2026-01-22: Reduced from 5 to 2 to prevent Vercel timeout (44+ AI calls → ~16 calls)
 const PISTON_API = 'https://emkc.org/api/v2/piston';
-const MAX_VERIFY_RETRIES = 5;
+const MAX_VERIFY_RETRIES = 2;
 const VERIFY_TIMEOUT = 10000; // 10s
 
 // Common npm packages allowed in WebContainer
