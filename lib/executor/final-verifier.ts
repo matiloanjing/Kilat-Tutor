@@ -263,6 +263,41 @@ export function consolidatePackageJsons(files: Record<string, string>): string {
     delete merged.scripts.start;
     delete merged.scripts.lint;
 
+    // =====================================================
+    // REMOVE PRISMA/BACKEND TOOLS (WebContainer cannot run native binaries)
+    // These will cause npm install to hang forever
+    // =====================================================
+    const backendDependencies = [
+        // Prisma
+        'prisma', '@prisma/client',
+        // Databases
+        'mongoose', 'pg', 'mysql', 'mysql2', 'sqlite3', 'better-sqlite3',
+        // ORMs
+        'sequelize', 'typeorm', 'drizzle-orm', 'knex',
+        // Native binaries
+        'bcrypt', 'bcryptjs', 'argon2', 'sharp', 'canvas',
+        // Server frameworks
+        'express', 'fastify', 'koa', 'hapi', '@hono/node-server',
+        // File system / Node-specific
+        'fs-extra', 'chokidar', 'nodemon'
+    ];
+
+    let removedBackendDeps: string[] = [];
+    for (const dep of backendDependencies) {
+        if (merged.dependencies[dep]) {
+            delete merged.dependencies[dep];
+            removedBackendDeps.push(dep);
+        }
+        if (merged.devDependencies[dep]) {
+            delete merged.devDependencies[dep];
+            removedBackendDeps.push(dep);
+        }
+    }
+
+    if (removedBackendDeps.length > 0) {
+        console.log(`🗑️ [FinalVerifier] Removed backend deps (WebContainer incompatible): ${removedBackendDeps.join(', ')}`);
+    }
+
     console.log('🔧 [FinalVerifier] Forced Vite scripts (WebContainer compatible)');
 
     // Ensure essential dependencies exist
@@ -433,6 +468,38 @@ export async function finalVerify(
     const issues: string[] = [];
     const fixes: string[] = [];
     let verifiedFiles = { ...files };
+
+    // =====================================================
+    // STEP 0: Remove backend files/folders (WebContainer cannot run these)
+    // =====================================================
+    const backendFolders = ['prisma/', 'database/', 'server/', 'api/', 'migrations/', 'db/'];
+    const backendFilePatterns = [
+        /prisma/i, /\.prisma$/i, /schema\.prisma$/i,
+        /server\.(ts|js)$/i, /db\.(ts|js)$/i
+    ];
+
+    let removedCount = 0;
+    for (const filePath of Object.keys(verifiedFiles)) {
+        // Check if file is in a backend folder
+        const isInBackendFolder = backendFolders.some(folder =>
+            filePath.toLowerCase().includes(folder.toLowerCase())
+        );
+
+        // Check if file matches backend patterns
+        const matchesPattern = backendFilePatterns.some(pattern =>
+            pattern.test(filePath)
+        );
+
+        if (isInBackendFolder || matchesPattern) {
+            delete verifiedFiles[filePath];
+            removedCount++;
+        }
+    }
+
+    if (removedCount > 0) {
+        console.log(`🗑️ [FinalVerifier] Removed ${removedCount} backend files/folders (WebContainer incompatible)`);
+        fixes.push(`Removed ${removedCount} backend files (prisma/database/server folders)`);
+    }
 
     // =====================================================
     // STEP 1: Consolidate all package.json files
