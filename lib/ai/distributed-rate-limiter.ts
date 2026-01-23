@@ -176,10 +176,14 @@ class DistributedRateLimiter {
         }
 
         // Increment counters
+        // FIX 2026-01-24: Add TTL to concurrent key to auto-cleanup on job crash
+        // Before: concurrent key had NO TTL, stuck jobs = permanently blocked
         await Promise.all([
             redis.incr(countKey),
             redis.incr(concurrentKey),
         ]);
+        // Set TTL on concurrent key (5 min max job duration)
+        await redis.expire(concurrentKey, 300);
 
         return {
             allowed: true,
