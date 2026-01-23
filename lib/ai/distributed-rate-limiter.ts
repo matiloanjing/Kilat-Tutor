@@ -244,7 +244,15 @@ class DistributedRateLimiter {
         if (redis) {
             try {
                 const concurrentKey = `ratelimit:${provider}:concurrent`;
-                await redis.decr(concurrentKey);
+                // FIX 2026-01-24: Only decrement if value exists and > 0
+                // Before: blind decr caused negative values when jobs were never properly tracked
+                const current = await redis.get<number>(concurrentKey);
+                if (current && current > 0) {
+                    await redis.decr(concurrentKey);
+                } else if (current !== null && current <= 0) {
+                    // Reset to 0 if somehow negative
+                    await redis.del(concurrentKey);
+                }
             } catch (e) {
                 // Ignore Redis errors on release
             }
