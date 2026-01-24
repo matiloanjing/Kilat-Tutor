@@ -242,11 +242,7 @@ export default function KilatCodePage({ params }: PageProps) {
             timestamp: Date.now(),
             agent: chatMode === 'planning' ? 'KilatCode (Multi-Agent)' : 'KilatCode (Fast)',
             status: 'streaming',
-            steps: chatMode === 'planning' ? [
-                { label: 'Analyzing requirements', status: 'active' },
-                { label: 'Generating components', status: 'pending' },
-                { label: 'Applying styles', status: 'pending' },
-            ] : undefined,
+            // FIX 2026-01-24: Removed duplicate steps - now using ProcessingSteps component only
         };
         setMessages(prev => [...prev, assistantMessage]);
 
@@ -300,7 +296,7 @@ export default function KilatCodePage({ params }: PageProps) {
                                 ...m,
                                 content: job.result?.content || 'Generation complete!',
                                 status: 'complete' as const,
-                                steps: m.steps?.map(s => ({ ...s, status: 'done' as const })),
+                                // FIX 2026-01-24: Removed steps update - using ProcessingSteps only
                             }
                             : m
                     ));
@@ -336,19 +332,7 @@ export default function KilatCodePage({ params }: PageProps) {
                         });
                     }
 
-                    setMessages(prev => prev.map(m =>
-                        m.id === assistantMessage.id
-                            ? {
-                                ...m,
-                                steps: m.steps?.map((s, i) => ({
-                                    ...s,
-                                    status: progress >= 90 ? 'done' as const :
-                                        progress >= ((i + 1) * 33) ? 'done' as const :
-                                            progress >= (i * 33) ? 'active' as const : 'pending' as const
-                                })),
-                            }
-                            : m
-                    ));
+                    // FIX 2026-01-24: Removed steps update - using ProcessingSteps component only
                 }
             }
         } catch (error) {
@@ -540,8 +524,9 @@ export default function KilatCodePage({ params }: PageProps) {
                 )}
 
                 {/* Claude Code-style Progress Display */}
-                {isProcessing && !isChatCollapsed && (
-                    <div className="absolute bottom-20 left-[64px] z-40 w-[360px] px-4">
+                {/* FIX 2026-01-24: Move to bottom-right to avoid overlap with AgentSuggestionPanel */}
+                {isProcessing && (
+                    <div className="fixed bottom-6 right-6 z-50 w-80">
                         <ProcessingSteps
                             isProcessing={isProcessing}
                             currentStep={currentStep}

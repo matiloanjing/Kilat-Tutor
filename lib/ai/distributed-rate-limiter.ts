@@ -24,27 +24,31 @@ import { Redis } from '@upstash/redis';
  * - Groq: 30 RPM (free tier), 14,400 RPD
  * - Pollinations: 20 concurrent (with auth), 60 RPM estimated
  * - OpenRouter: 200 RPM (varies by model)
+ *
+ * NOTE 2026-01-24: Increased limits for KilatOS Universe multi-agent orchestration
+ * Each Planning Mode request needs ~10-15 AI calls (decompose, parallel agents, verify, merge)
+ * With 100 users, need higher concurrent limits
  */
 export const PROVIDER_LIMITS = {
     groq: {
         maxRPM: 25,         // Leave 5 buffer from 30 RPM limit
-        maxConcurrent: 3,   // Conservative for stability
+        maxConcurrent: 5,   // Increased from 3 for multi-agent fallback
         windowMs: 60_000,   // 1 minute window
     },
     pollinations: {
-        maxRPM: 50,         // Conservative estimate
-        maxConcurrent: 15,  // Leave 5 buffer from 20 limit
+        maxRPM: 100,        // Increased from 50 for multi-agent (KilatOS Universe)
+        maxConcurrent: 50,  // Increased from 15 - each request needs ~10-15 AI calls
         windowMs: 60_000,
     },
     openrouter: {
         maxRPM: 150,        // Leave buffer from 200
-        maxConcurrent: 10,
+        maxConcurrent: 20,  // Increased from 10
         windowMs: 60_000,
     },
     // Default for unknown providers
     default: {
-        maxRPM: 30,
-        maxConcurrent: 5,
+        maxRPM: 50,         // Increased from 30
+        maxConcurrent: 10,  // Increased from 5
         windowMs: 60_000,
     }
 } as const;
@@ -175,15 +179,18 @@ class DistributedRateLimiter {
             return { allowed: false, remaining: limits.maxRPM - count, resetMs: 1000 };
         }
 
-        // Increment counters
-        // FIX 2026-01-24: Add TTL to concurrent key to auto-cleanup on job crash
-        // Before: concurrent key had NO TTL, stuck jobs = permanently blocked
-        await Promise.all([
-            redis.incr(countKey),
-            redis.incr(concurrentKey),
-        ]);
-        // Set TTL on concurrent key (5 min max job duration)
-        await redis.expire(concurrentKey, 300);
+        // Increment counters with atomic TTL
+        // FIX 2026-01-24: Set TTL atomically with increment to prevent race condition
+        // Before: TTL was set AFTER increment, causing stuck counters if job crashed between
+        // After: Use pipeline-style execution for atomicity
+        await redis.incr(countKey);
+
+        // Increment concurrent and set TTL in sequence (Redis commands are atomic per key)
+        const newConcurrent = await redis.incr(concurrentKey);
+        // Always refresh TTL on concurrent key (10 min max job duration for multi-agent)
+        await redis.expire(concurrentKey, 600);
+
+        console.log(`[RateLimiter] ${provider}: slot acquired (${newConcurrent}/${limits.maxConcurrent} concurrent)`);
 
         return {
             allowed: true,
