@@ -32,6 +32,7 @@ import {
     ACCEPTED_IMAGE_TYPES,
     ACCEPTED_DOC_TYPES
 } from '@/components/ui/AttachmentBadge';
+import { ProcessingSteps } from '@/components/ui/ProcessingSteps';
 
 
 const AGENTS = [
@@ -214,6 +215,11 @@ export default function ChatSessionPage({ params }: PageProps) {
     const [userTier, setUserTier] = useState<UserTier>('free');
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [sessionTitle, setSessionTitle] = useState('New Chat');
+
+    // Progress Tracking
+    const [currentStep, setCurrentStep] = useState<string>('Starting...');
+    const [stepHistory, setStepHistory] = useState<string[]>([]);
+    const [jobProgress, setJobProgress] = useState<number>(0);
 
     // Quota tracking - fetch from API
     const [quota] = useQuota(user?.id, 'code');
@@ -465,6 +471,11 @@ export default function ChatSessionPage({ params }: PageProps) {
         };
         setMessages(prev => [...prev, assistantMessage]);
 
+        // Reset progress state
+        setCurrentStep('Starting...');
+        setStepHistory([]);
+        setJobProgress(0);
+
         try {
             const isImageRequest = detectImageRequest(inputValue);
             const effectiveAgentType = isImageRequest ? 'kilatimage' : agentType;
@@ -523,7 +534,22 @@ export default function ChatSessionPage({ params }: PageProps) {
                             ? { ...m, content: job.result?.content || 'Done!', status: 'complete' as const }
                             : m
                     ));
-                } else if (job?.status === 'failed') {
+                } else if (job) {
+                    // Update Progress
+                    const progress = job.progress || 0;
+                    const step = job.currentStep || 'Processing...';
+                    setJobProgress(progress);
+
+                    if (step !== currentStep) {
+                        setCurrentStep(step);
+                        setStepHistory(prev => {
+                            if (prev[prev.length - 1] !== step) return [...prev.slice(-20), step];
+                            return prev;
+                        });
+                    }
+                }
+
+                if (job?.status === 'failed') {
                     throw new Error(job.error || 'Failed');
                 }
             }
@@ -659,6 +685,18 @@ export default function ChatSessionPage({ params }: PageProps) {
                                     </div>
                                 </div>
                             ))}
+
+                            {/* Processing Steps Indicator */}
+                            {isProcessing && (
+                                <div className="px-4 py-2 max-w-xl">
+                                    <ProcessingSteps
+                                        isProcessing={isProcessing}
+                                        currentStep={currentStep}
+                                        progress={jobProgress}
+                                        stepHistory={stepHistory}
+                                    />
+                                </div>
+                            )}
                         </div>
                     </div>
 

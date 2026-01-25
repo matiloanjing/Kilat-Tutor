@@ -36,6 +36,11 @@ export default function KilatQuestionPage({ params }: PageProps) {
     const [isChatCollapsed, setIsChatCollapsed] = useState(false);
     const [suggestions, setSuggestions] = useState<AgentSuggestion[]>([]);
 
+    // Progress Tracking
+    const [currentStep, setCurrentStep] = useState<string>('Starting...');
+    const [stepHistory, setStepHistory] = useState<string[]>([]);
+    const [jobProgress, setJobProgress] = useState<number>(0);
+
     useEffect(() => { if (projectId) loadProject(projectId); }, [projectId]);
     const loadProject = async (id: string) => {
         try {
@@ -63,6 +68,9 @@ export default function KilatQuestionPage({ params }: PageProps) {
         setSuggestions([]);
         setMessages(prev => [...prev, { id: `msg_${Date.now()}`, role: 'user', content, timestamp: Date.now() }]);
         setIsProcessing(true);
+        setCurrentStep('Starting...');
+        setStepHistory([]);
+        setJobProgress(0);
         const assistantMsg: Message = { id: `msg_${Date.now()}_assistant`, role: 'assistant', content: '📝 Generating questions...', timestamp: Date.now(), agent: 'KilatQuestion', status: 'streaming' };
         setMessages(prev => [...prev, assistantMsg]);
 
@@ -72,6 +80,21 @@ export default function KilatQuestionPage({ params }: PageProps) {
             while (!completed && pollCount < 300) {
                 await new Promise(r => setTimeout(r, 1000)); pollCount++;
                 const statusData = await (await fetch(`/api/kilat/status?jobId=${jobId}`)).json();
+
+                // Update Progress
+                if (statusData.job) {
+                    const progress = statusData.job.progress || 0;
+                    const step = statusData.job.currentStep || 'Processing...';
+                    setJobProgress(progress);
+                    if (step !== currentStep) {
+                        setCurrentStep(step);
+                        setStepHistory(prev => {
+                            if (prev[prev.length - 1] !== step) return [...prev.slice(-20), step];
+                            return prev;
+                        });
+                    }
+                }
+
                 if (statusData.job?.status === 'completed') {
                     completed = true;
                     setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: statusData.job.result?.content || 'Quiz ready!', status: 'complete' as const } : m));
@@ -155,7 +178,10 @@ export default function KilatQuestionPage({ params }: PageProps) {
                     isCollapsed={isChatCollapsed} onToggleCollapse={() => setIsChatCollapsed(p => !p)} agentType="question"
                     onFeedback={handleFeedback}
                     onRegenerate={handleRegenerate}
-                    onCopy={handleCopy} />
+                    onCopy={handleCopy}
+                    currentStep={currentStep}
+                    progress={jobProgress}
+                    stepHistory={stepHistory} />
 
                 {/* Post-Task Suggestions */}
                 {suggestions.length > 0 && !isChatCollapsed && (

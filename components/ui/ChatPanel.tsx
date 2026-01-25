@@ -441,13 +441,9 @@ export function ChatPanel({
                                     </div>
                                 ))
                             )}
-                            <div ref={messagesEndRef} />
-                        </div>
-
-                        {/* Processing Indicator (Pinned to bottom of chat area if loading) */}
-                        {isProcessing && (
-                            <div className="absolute bottom-32 left-0 right-0 px-6 z-20 pointer-events-none">
-                                <div className="max-w-xl mx-auto pointer-events-auto">
+                            {/* Processing Indicator (In-flow) */}
+                            {isProcessing && (
+                                <div className="px-1 py-2 max-w-xl mx-auto w-full">
                                     <ProcessingSteps
                                         isProcessing={isProcessing}
                                         currentStep={currentStep}
@@ -455,8 +451,9 @@ export function ChatPanel({
                                         stepHistory={stepHistory}
                                     />
                                 </div>
-                            </div>
-                        )}
+                            )}
+                            <div ref={messagesEndRef} />
+                        </div>
 
                         {/* Input Area */}
                         <div className="p-5 border-t border-border-premium bg-charcoal">
