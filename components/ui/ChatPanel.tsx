@@ -8,6 +8,7 @@ import { AgentSwitcherCompact } from './AgentSwitcher';
 import { ConnectedAgentsBadge } from './CrossAgentPanel';
 import { AGENT_ROUTES, AGENT_TYPE_TO_CATEGORY } from '@/hooks/useCrossAgentContext';
 import MessageContent from './MessageContent';
+import { ProcessingSteps } from '@/components/ui/ProcessingSteps';
 
 interface Message {
     id: string;
@@ -43,6 +44,9 @@ export interface ChatPanelProps {
     onStop?: () => void; // Stop generation
     agentType?: string; // Current agent type for session filtering
     generatedFileCount?: number; // Total files in session for display
+    currentStep?: string;
+    progress?: number;
+    stepHistory?: string[];
 }
 
 const SUGGESTIONS = [
@@ -73,7 +77,10 @@ export function ChatPanel({
     onCopy,
     onStop,
     agentType,
-    generatedFileCount
+    generatedFileCount,
+    currentStep = 'Starting...',
+    progress = 0,
+    stepHistory = []
 }: ChatPanelProps) {
     const [inputValue, setInputValue] = useState('');
     const [view, setView] = useState<'chat' | 'history'>('chat');
@@ -436,6 +443,20 @@ export function ChatPanel({
                             )}
                             <div ref={messagesEndRef} />
                         </div>
+
+                        {/* Processing Indicator (Pinned to bottom of chat area if loading) */}
+                        {isProcessing && (
+                            <div className="absolute bottom-32 left-0 right-0 px-6 z-20 pointer-events-none">
+                                <div className="max-w-xl mx-auto pointer-events-auto">
+                                    <ProcessingSteps
+                                        isProcessing={isProcessing}
+                                        currentStep={currentStep}
+                                        progress={progress}
+                                        stepHistory={stepHistory}
+                                    />
+                                </div>
+                            </div>
+                        )}
 
                         {/* Input Area */}
                         <div className="p-5 border-t border-border-premium bg-charcoal">

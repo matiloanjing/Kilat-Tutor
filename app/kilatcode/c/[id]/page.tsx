@@ -507,6 +507,9 @@ export default function KilatCodePage({ params }: PageProps) {
                     onToggleCollapse={handleToggleChat}
                     agentType="codegen"
                     generatedFileCount={generatedFiles ? Object.keys(generatedFiles).length : 0}
+                    currentStep={currentStep}
+                    progress={jobProgress}
+                    stepHistory={stepHistory}
                 />
 
                 {/* Post-Task Agent Suggestions (Cross-Agent Workflow) */}
@@ -523,18 +526,7 @@ export default function KilatCodePage({ params }: PageProps) {
                     </div>
                 )}
 
-                {/* Claude Code-style Progress Display */}
-                {/* FIX 2026-01-24: Move to bottom-right to avoid overlap with AgentSuggestionPanel */}
-                {isProcessing && (
-                    <div className="fixed bottom-6 right-6 z-50 w-80">
-                        <ProcessingSteps
-                            isProcessing={isProcessing}
-                            currentStep={currentStep}
-                            progress={jobProgress}
-                            stepHistory={stepHistory}
-                        />
-                    </div>
-                )}
+                {/* Claude Code-style Progress Display - MOVED TO CHATPANEL */}
 
                 <ExplorerPanel
                     files={generatedFiles || {}}

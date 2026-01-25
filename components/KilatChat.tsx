@@ -24,6 +24,7 @@ import { ModelSelector } from './ModelSelector';
 import { CollapsibleCodeCard } from './CollapsibleCodeCard';
 import type { PollinationModel } from '@/lib/config/models';
 import type { UserTier } from '@/lib/auth/user-tier';
+import { ProcessingSteps } from '@/components/ui/ProcessingSteps';
 
 // ============================================================================
 // Types
@@ -190,6 +191,7 @@ function ChatMessage({
         return parts.map((part, index) => {
             if (part.type === 'image') {
                 return (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <div key={index} className="my-4">
                         <img
                             src={part.content}
@@ -601,6 +603,11 @@ export default function KilatChat({
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
+    // Processing Steps State (Claude Code Style)
+    const [currentStep, setCurrentStep] = useState<string>('Starting...');
+    const [jobProgress, setJobProgress] = useState<number>(0);
+    const [stepHistory, setStepHistory] = useState<string[]>([]);
+
     // NEW: Lovable UI state
     const [chatMode, setChatMode] = useState<ChatMode>('planning');
     const [selectedModel, setSelectedModel] = useState<PollinationModel>('gemini-fast');
@@ -778,110 +785,90 @@ export default function KilatChat({
         // Poll for status (Faster polling for real-time feel)
         let completed = false;
         let pollCount = 0;
-        let lastStep = '';
-        const logs: string[] = ['> Job submitted...'];
 
         while (!completed) {
             await new Promise(resolve => setTimeout(resolve, 800)); // 0.8s polling
             pollCount++;
-            // console.log(`🔄 Poll #${pollCount} for job ${jobId}`);
 
-            const statusRes = await fetch(`/api/kilat/status?jobId=${jobId}`);
-
-            // Check if response is ok before parsing
-            if (!statusRes.ok) {
-                // If it's a 504 transition or network blip, ignore once
-                if (pollCount % 5 === 0) console.warn('Status check network error');
-                continue;
-            }
-
-            let statusData;
             try {
-                statusData = await statusRes.json();
-            } catch (parseError) {
-                continue; // Ignore JSON parse errors during polling
-            }
+                const statusRes = await fetch(`/api/kilat/status?jobId=${jobId}`);
 
-            if (!statusData.success) {
-                if (statusData.error === 'Job not found') {
-                    throw new Error('Job lost in queue. Please try again.');
+                // Check if response is ok before parsing
+                if (!statusRes.ok) {
+                    if (pollCount % 5 === 0) console.warn('Status check network error');
+                    continue;
                 }
-                continue;
-            }
 
-            const job = statusData.job;
+                const statusData = await statusRes.json();
 
-            // Log Accumulation Logic
-            if (job.currentStep && job.currentStep !== lastStep) {
-                logs.push(`> [${job.progress}%] ${job.currentStep}`);
-                lastStep = job.currentStep;
-            }
+                if (!statusData.success) {
+                    if (statusData.error === 'Job not found') {
+                        throw new Error('Job lost in queue. Please try again.');
+                    }
+                    // Continue polling if job not ready yet
+                    continue;
+                }
 
-            // Update progress message with terminal view
-            setMessages(prev => prev.map(m =>
-                m.id === pendingId ? {
-                    ...m,
-                    content: `🚀 **Multi-Agent Job:** \`${jobId}\`\n\n\`\`\`bash\n${logs.join('\n')}\n\`\`\`\n\n(Status: ${job.status.toUpperCase()})`
-                } : m
-            ));
+                // Update UI with progress
+                if (statusData.job) {
+                    const job = statusData.job;
+                    const progress = job.progress || 0;
+                    const step = job.currentStep || 'Processing...';
 
-            if (job.status === 'completed') {
-                completed = true;
-
-                // DEBUG: Log job.result structure
-                console.log('📦 Job completed! Result structure:', {
-                    hasResult: !!job.result,
-                    hasFiles: !!job.result?.files,
-                    filesType: typeof job.result?.files,
-                    filesIsArray: Array.isArray(job.result?.files),
-                    filesKeys: job.result?.files ? Object.keys(job.result.files) : 'N/A',
-                    contentPreview: typeof job.result?.content === 'string'
-                        ? job.result.content.substring(0, 100) + '...'
-                        : 'not a string'
-                });
-
-                // Replace with final result
-                setMessages(prev => prev.map(m =>
-                    m.id === pendingId ? {
-                        ...m,
-                        content: job.result?.content || 'Task completed!',
-                        type: 'code',
-                        files: Object.entries(job.result?.files || {}).map(([name, content]) => ({ name, content: String(content) })),
-                        executionTime: job.completedAt ?
-                            new Date(job.completedAt).getTime() - new Date(job.createdAt).getTime() :
-                            undefined,
-                    } : m
-                ));
-
-                // NEW: Trigger instant preview when files are generated
-                // CRITICAL: job.result.files may be Array or Record, need to normalize
-                if (onFilesGenerated) {
-                    let filesRecord: Record<string, string> = {};
-
-                    // Check if files is Array (from metadata.files format)
-                    if (Array.isArray(job.result?.files)) {
-                        console.log('🔄 Converting Array files to Record format');
-                        (job.result.files as Array<{ name: string; content: string }>).forEach(f => {
-                            if (f.name && f.content) {
-                                filesRecord[f.name.startsWith('/') ? f.name : `/${f.name}`] = f.content;
+                    setJobProgress(progress);
+                    if (step !== currentStep) {
+                        setCurrentStep(step);
+                        setStepHistory(prev => {
+                            if (prev[prev.length - 1] !== step) {
+                                return [...prev.slice(-20), step];
                             }
+                            return prev;
                         });
                     }
-                    // Check if files is Record (from data.files format)
-                    else if (job.result?.files && typeof job.result.files === 'object') {
-                        console.log('✅ Files already in Record format');
-                        filesRecord = job.result.files as Record<string, string>;
-                    }
 
-                    if (Object.keys(filesRecord).length > 0) {
-                        console.log('🎉 Files detected, triggering instant preview:', Object.keys(filesRecord));
-                        onFilesGenerated(filesRecord);
-                    } else {
-                        console.log('⚠️ No valid files found for instant preview');
+                    if (job.status === 'completed') {
+                        completed = true;
+
+                        // Remove the pending message
+                        setMessages(prev => prev.filter(m => m.id !== pendingId));
+
+                        // Add response message
+                        const responseMessage: Message = {
+                            id: generateId(),
+                            role: 'assistant',
+                            content: job.result?.content || 'Task completed',
+                            type: job.result?.files ? 'code' : 'text',
+                            timestamp: new Date(),
+                            agent: job.agent_type || 'KilatAgent',
+                            files: job.result?.files ? Object.entries(job.result.files).map(([name, content]) => ({
+                                name,
+                                content: content as string,
+                                language: detectLanguage(content as string)
+                            })) : undefined,
+                            executionTime: job.metadata?.executionTime,
+                            requestId: job.id
+                        };
+                        setMessages(prev => [...prev, responseMessage]);
+
+                        // Trigger file generated callback if provided
+                        if (job.result?.files && onFilesGenerated) {
+                            onFilesGenerated(job.result.files as Record<string, string>);
+                        }
+
+                    } else if (job.status === 'failed') {
+                        completed = true;
+                        // Remove pending message
+                        setMessages(prev => prev.filter(m => m.id !== pendingId));
+                        throw new Error(job.error_message || 'Job failed');
                     }
                 }
-            } else if (job.status === 'failed') {
-                throw new Error(job.error || 'Job failed');
+            } catch (error) {
+                console.error('Polling error:', error);
+                // Continue polling unless it's a critical error or timeout
+                if (pollCount > 300) { // Timeout
+                    completed = true;
+                    throw new Error('Operation timed out');
+                }
             }
         }
     };
@@ -997,13 +984,25 @@ export default function KilatChat({
                     ))
                 )}
 
-                {isLoading && <LoadingIndicator />}
-
                 <div ref={messagesEndRef} />
             </div>
 
+            {/* Processing Indicator (Pinned to bottom of chat area if loading) */}
+            {isLoading && (
+                <div className="absolute bottom-32 left-0 right-0 px-6 z-20 pointer-events-none">
+                    <div className="max-w-3xl mx-auto pointer-events-auto">
+                        <ProcessingSteps
+                            isProcessing={isLoading}
+                            currentStep={currentStep}
+                            progress={jobProgress}
+                            stepHistory={stepHistory}
+                        />
+                    </div>
+                </div>
+            )}
+
             {/* Lovable-Style Input Bar */}
-            <div className="bg-gray-800/80 border-t border-white/10">
+            <div className="bg-gray-800/80 border-t border-white/10 z-30 relative">
                 {/* Attached Files Preview */}
                 {attachedFiles.length > 0 && (
                     <AttachedFilesList
@@ -1032,8 +1031,8 @@ export default function KilatChat({
                             placeholder="Ask anything... (auto-routes to best agent)"
                             disabled={isLoading}
                             className="flex-1 px-4 py-2.5 bg-gray-900/50 rounded-lg border border-white/10 
-                                       text-white placeholder-gray-500 focus:outline-none focus:border-purple-500
-                                       disabled:opacity-50 transition-colors text-sm"
+                                           text-white placeholder-gray-500 focus:outline-none focus:border-purple-500
+                                           disabled:opacity-50 transition-colors text-sm"
                         />
 
                         {/* Right: Mode, Model, Send - NO SHRINK to prevent cut-off */}
@@ -1051,8 +1050,8 @@ export default function KilatChat({
                                 type="submit"
                                 disabled={isLoading || !input.trim()}
                                 className="p-2.5 bg-gradient-to-r from-purple-600 to-pink-500 rounded-lg
-                                           text-white hover:opacity-90 disabled:opacity-50 
-                                           disabled:cursor-not-allowed transition-opacity flex-shrink-0"
+                                               text-white hover:opacity-90 disabled:opacity-50 
+                                               disabled:cursor-not-allowed transition-opacity flex-shrink-0"
                             >
                                 {isLoading ? (
                                     <span className="w-5 h-5 block border-2 border-white/30 border-t-white rounded-full animate-spin" />
