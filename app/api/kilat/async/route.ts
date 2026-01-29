@@ -159,8 +159,13 @@ export async function POST(request: Request) {
             attachments: attachments as any[],
             authToken // Include auth token for RLS-scoped client in process-job
         };
+        // DEBUG 2026-01-30: Log QStash configuration
+        console.log('🔍 [QStash Debug] Token exists:', !!process.env.QSTASH_TOKEN);
+        console.log('🔍 [QStash Debug] baseUrl:', baseUrl);
 
-        const { fallback } = await publishJobToQStash(qstashPayload, baseUrl);
+        const { fallback, messageId } = await publishJobToQStash(qstashPayload, baseUrl);
+
+        console.log('🔍 [QStash Debug] Result:', { fallback, messageId });
 
         if (fallback) {
             // QStash not configured or failed - use fire-and-forget fallback
