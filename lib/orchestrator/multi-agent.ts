@@ -56,6 +56,18 @@ import { agenticRAG, formatRAGContext, syncGeneratedCodeToKB, syncTestResultsToL
 // Language Rules for multi-language support
 import { LANGUAGE_RULES } from '@/lib/prompts/templates';
 
+// OpenCode-Style System Prompts (FORBIDDEN patterns, WebContainer constraints)
+import {
+    DECOMPOSE_SYSTEM_PROMPT,
+    VERIFY_CHAIN_PROMPT,
+    MERGE_SPECIALIST_PROMPT,
+    FORBIDDEN_PATTERNS,
+    REQUIRED_STRUCTURE,
+    OUTPUT_FORMAT_RULES,
+    CONVERSATION_FORMAT,
+    buildKilatCodeSystemPrompt
+} from '@/lib/prompts/kilatcode-system';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -688,47 +700,13 @@ export class MultiAgentOrchestrator {
                     requirements: `
 ${LANGUAGE_RULES}
 
-⚠️ CRITICAL - RESPONSE FORMAT (MANDATORY):
-Your response MUST follow this EXACT structure. Failure to follow = INVALID response.
+${FORBIDDEN_PATTERNS}
 
-**STEP 1 - GREETING (REQUIRED):**
-Start with: "Halo! 👋 Saya akan buatkan [apa yang diminta] untuk kamu!"
-Then add 1-2 sentences about your vision/approach.
+${REQUIRED_STRUCTURE}
 
-**STEP 2 - PLAN (REQUIRED):**  
-"📋 **Rencana saya:**"
-1. [First thing you'll do]
-2. [Second thing]
-3. [Third thing if needed]
+${CONVERSATION_FORMAT}
 
-**STEP 3 - CODE FILES:**
-Generate the code files with brief explanations before each.
-
-**STEP 4 - CLOSING (REQUIRED):**
-"✅ **Selesai!** [Project name] sudah siap. Mau saya tambahkan [feature suggestion]?"
-
-❌ DO NOT skip steps 1, 2, or 4. Be like a friendly senior developer explaining to a junior.
-❌ DO NOT just dump code without conversation.
-✅ BE conversational, warm, helpful - like chatting with a friend who codes.
-
-WEBCONTAINER RULES (Full Node.js Runtime):
-• /App.tsx = entry point with "export default function App()"
-• You CAN use npm packages (axios, lodash, react-player, framer-motion, etc.)
-• Include /package.json with dependencies if using external packages
-• Flat files preferred (no deep subdirectories)
-• Use modern React patterns (hooks, functional components)
-
-CRITICAL OUTPUT FORMAT:
-Every code file MUST be wrapped in a code block with filename attribute:
-\`\`\`tsx filename="/App.tsx"
-// code here
-\`\`\`
-
-\`\`\`json filename="/package.json"
-{"dependencies": {"react": "^18.0.0", ...}}
-\`\`\`
-
-For complex projects, output MULTIPLE files (App, components, styles).
+${OUTPUT_FORMAT_RULES}
 
 AFTER COMPLETING THE TASK, always end with Next Steps section:
 ---
@@ -902,35 +880,9 @@ AFTER COMPLETING THE TASK, always end with Next Steps section:
         }
 
         const result = await aiMandor.call({
-            prompt: `You are a project planner. Decompose this user request into sub-tasks for specialized agents.
+            prompt: `${DECOMPOSE_SYSTEM_PROMPT}
 
-Available agents:
-- design: UI/UX design, layout, color schemes, component structure
-- frontend: React/Next.js code, components, styling
-- backend: API routes, server logic, authentication
-- database: Database schema, migrations, queries
-- research: Find best practices, libraries, examples
-
-User Request: "${userRequest}"
-
-Return JSON ONLY (no markdown):
-{
-  "projectName": "short-project-name",
-  "summary": "Brief description of what will be built",
-  "subTasks": [
-    {
-      "id": "task-1",
-      "agent": "design",
-      "description": "What this agent should do",
-      "dependencies": [],
-      "priority": "high"
-    }
-  ],
-  "parallelGroups": [
-    ["task-1", "task-2"],
-    ["task-3"]
-  ]
-}`,
+User Request: "${userRequest}"`,
             complexity: 'medium',
             priority: 'high',
             model: selectedModel, // USER'S SELECTED MODEL
@@ -1246,46 +1198,13 @@ export function Layout({ children }) { return <div className="...">...</div>; }
                 return basePrompt + `
 ${LANGUAGE_RULES}
 
-⚠️ CRITICAL - RESPONSE FORMAT (MANDATORY):
-Your response MUST follow this EXACT structure. Failure to follow = INVALID response.
+${FORBIDDEN_PATTERNS}
 
-**STEP 1 - GREETING (REQUIRED):**
-Start with: "Halo! 👋 Saya akan buatkan [apa yang diminta] untuk kamu!"
-Then add 1-2 sentences about your vision/approach.
+${REQUIRED_STRUCTURE}
 
-**STEP 2 - PLAN (REQUIRED):**  
-"📋 **Rencana saya:**"
-1. [First thing you'll do]
-2. [Second thing]
-3. [Third thing if needed]
+${CONVERSATION_FORMAT}
 
-**STEP 3 - CODE FILES:**
-Generate the code files with brief explanations before each.
-
-**STEP 4 - CLOSING (REQUIRED):**
-"✅ **Selesai!** [Project name] sudah siap. Mau saya tambahkan [feature suggestion]?"
-
-❌ DO NOT skip steps 1, 2, or 4. Be like a friendly senior developer.
-✅ BE conversational, warm, helpful - like chatting with a friend who codes.
-
-WEBCONTAINER RULES (Full Node.js Runtime):
-• /App.tsx = entry with "export default function App()"
-• You CAN use npm packages (axios, lodash, react-player, framer-motion, zustand, etc.)
-• Include /package.json with dependencies
-• Use Tailwind CSS for styling (already included)
-• Modern React patterns (hooks, functional components)
-
-FOR COMPLEX APPS, OUTPUT MULTIPLE FILES:
-1. /package.json - dependencies
-2. /App.tsx - main entry
-3. /components/Navbar.tsx - navigation
-4. /components/MovieCard.tsx - content cards
-5. /styles.css - custom styles
-${OUTPUT_FORMAT_INSTRUCTION}
-Example:
-\`\`\`tsx filename="/App.tsx"
-export default function App() { return <div>...</div>; }
-\`\`\`
+${OUTPUT_FORMAT_RULES}
 
 AFTER COMPLETING THE TASK, always end with Next Steps section:
 ---
@@ -1295,33 +1214,58 @@ AFTER COMPLETING THE TASK, always end with Next Steps section:
 - 📖 **Generate docs** → Create README with KilatDocs`;
 
             case 'backend':
+                // Backend agent redirects to frontend-only client-side solution
                 return basePrompt + `
-Generate API routes and server logic:
-- Next.js API routes (app/api/...) or Express.js
-- TypeScript
-- Error handling
-- Input validation
-${OUTPUT_FORMAT_INSTRUCTION}
-Example:
-\`\`\`ts filename="/api/route.ts"
-export async function GET(request: Request) { ... }
+⚠️ IMPORTANT: WebContainer runs in BROWSER - no server-side code!
+
+Instead of API routes, create:
+- React components with mock data
+- JSON data files for static data
+- localStorage/IndexedDB for persistence
+- External API integration using fetch()
+
+${FORBIDDEN_PATTERNS}
+
+${OUTPUT_FORMAT_RULES}
+
+Generate client-side React components that SIMULATE backend functionality.
+Example: Instead of API route, create a data service:
+\`\`\`tsx filename="/services/api.ts"
+// Mock API service - replace with real API URLs in production
+export async function fetchData() {
+  // For demo, return static data
+  return [{ id: 1, name: "Example" }];
+}
 \`\`\``;
 
             case 'database':
+                // Database agent redirects to browser storage
                 return basePrompt + `
-Design database schema:
-- Table definitions (SQL or Prisma)
-- Relationships
-- Indexes
-- Migrations
-${OUTPUT_FORMAT_INSTRUCTION}
-Example:
-\`\`\`sql filename="/schema.sql"
-CREATE TABLE users (...);
-\`\`\`
-Or:
-\`\`\`prisma filename="/prisma/schema.prisma"
-model User { ... }
+⚠️ IMPORTANT: WebContainer cannot run Prisma/PostgreSQL!
+
+Instead, use browser-based storage:
+- localStorage for simple key-value
+- IndexedDB for complex queries
+- Zustand for in-memory state
+- External API (Supabase JS client) for real database
+
+${FORBIDDEN_PATTERNS}
+
+NEVER generate:
+- prisma/schema.prisma
+- Any .sql files
+- Any migration files
+- .env files
+
+${OUTPUT_FORMAT_RULES}
+
+Example localStorage wrapper:
+\`\`\`tsx filename="/lib/storage.ts"
+export const storage = {
+  get: (key: string) => JSON.parse(localStorage.getItem(key) || 'null'),
+  set: (key: string, value: any) => localStorage.setItem(key, JSON.stringify(value)),
+  remove: (key: string) => localStorage.removeItem(key)
+};
 \`\`\``;
 
             case 'research':
@@ -1532,26 +1476,17 @@ Note: Research output does not need code files unless providing examples.`;
             }
 
             try {
-                // Step 3a: AI-based verification
+                // Step 3a: AI-based verification with FORBIDDEN import checks
                 const verification = await aiMandor.call({
-                    prompt: `Lead Verifier. CRITIQUE and FIX ${result.agent} code.
+                    prompt: `${VERIFY_CHAIN_PROMPT}
 
+Agent: ${result.agent}
 Task: ${task.description}
 
-Code:
+Code to verify:
 ${result.output}
 
-WEBCONTAINER CHECKS:
-1. /App.tsx exists with "export default function App()"
-2. If using external libs, /package.json must exist
-3. Valid JSX/TSX syntax
-4. Proper React component structure
-5. For complex apps: multiple files expected
-
-If good → output as-is
-If bad → REWRITE with fixes
-
-Output FINAL CODE only.`,
+Return VERIFIED CODE with any fixes applied.`,
                     complexity: 'heavy',
                     priority: 'high',
                     model: selectedModel, // USER'S SELECTED MODEL
@@ -1644,6 +1579,15 @@ Output FINAL CODE only.`,
         for (const result of results) {
             if (result.files) {
                 for (const [filename, content] of Object.entries(result.files)) {
+                    // FORBIDDEN FILE FILTER: Skip files that crash WebContainer
+                    const forbiddenPaths = ['prisma/', 'server/', 'api/', '.env', 'docker', '/migrations/', 'schema.prisma'];
+                    if (forbiddenPaths.some(fp => filename.toLowerCase().includes(fp))) {
+                        if (this.enableLogging) {
+                            console.log(`      🚫 [Merger] Skipping forbidden file: ${filename}`);
+                        }
+                        continue; // Skip this file
+                    }
+
                     if (allFiles[filename] && allFiles[filename] !== content) {
                         // Conflict detected - different content for same file
                         const existingConflict = conflicts.find(c => c.filename === filename);
@@ -1670,18 +1614,15 @@ Output FINAL CODE only.`,
                 ).join('\n');
 
                 const resolution = await aiMandor.call({
-                    prompt: `Merge Specialist. Resolve these code conflicts intelligently:
+                    prompt: `${MERGE_SPECIALIST_PROMPT}
 
+Conflicts detected:
 ${conflictSummary}
 
-Current merged files:
+Current files:
 ${Object.entries(allFiles).map(([f, c]) => `--- ${f} ---\n${c.substring(0, 500)}...`).join('\n\n')}
 
-Instructions:
-1. If conflicts are complementary → combine them
-2. If conflicts are contradictory → keep the most complete version
-3. Output JSON with resolved files:
-{ "files": { "filename": "content" } }`,
+Return resolved files as JSON.`,
                     complexity: 'medium',
                     priority: 'high',
                     model: selectedModel, // USER'S SELECTED MODEL
