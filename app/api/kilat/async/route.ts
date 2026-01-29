@@ -11,6 +11,7 @@
 
 import { NextResponse } from 'next/server';
 import { jobQueue } from '@/lib/queue/job-queue';
+import { publishJobToQStash, QStashJobPayload } from '@/lib/queue/qstash-client';
 import { kilatOS, initializeApps } from '@/lib/core';
 import { orchestrator } from '@/lib/orchestrator/multi-agent';
 import { verifyAndFix } from '@/lib/executor/code-verifier';
@@ -141,17 +142,53 @@ export async function POST(request: Request) {
             );
         }
 
-        // Start background processing (non-blocking) with mode, selectedModel, sessionId, agentType, and attachments
-        processJobInBackground(jobId, message || '', executionMode, selectedModel, sessionId, scopedClient, user.id, agentType || 'code', attachments as AttachmentInput[]).catch(err => {
-            console.error(`Job ${jobId} failed:`, err);
-        });
+        // =====================================================================
+        // QSTASH BACKGROUND JOB SUBMISSION
+        // Use QStash for reliable 15min+ execution, fallback to fire-and-forget
+        // =====================================================================
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `https://${request.headers.get('host')}`;
+
+        const qstashPayload: QStashJobPayload = {
+            jobId,
+            message: message || '',
+            mode: executionMode,
+            selectedModel,
+            sessionId,
+            userId: user.id,
+            agentType: agentType || 'code',
+            attachments: attachments as any[],
+            authToken // Include auth token for RLS-scoped client in process-job
+        };
+
+        const { fallback } = await publishJobToQStash(qstashPayload, baseUrl);
+
+        if (fallback) {
+            // QStash not configured or failed - use fire-and-forget fallback
+            console.log('⚠️ Falling back to fire-and-forget (QStash unavailable)');
+            processJobInBackground(
+                jobId,
+                message || '',
+                executionMode,
+                selectedModel,
+                sessionId,
+                scopedClient,
+                user.id,
+                agentType || 'code',
+                attachments as AttachmentInput[]
+            ).catch(err => {
+                console.error(`Job ${jobId} failed:`, err);
+            });
+        }
 
         // Return immediately with jobId
         return NextResponse.json({
             success: true,
             jobId,
-            message: 'Job submitted. Poll /api/kilat/status?jobId=xxx for updates.',
-            pollUrl: `/api/kilat/status?jobId=${jobId}`
+            message: fallback
+                ? 'Job submitted (fallback mode). Poll /api/kilat/status?jobId=xxx for updates.'
+                : 'Job queued to QStash. Poll /api/kilat/status?jobId=xxx for updates.',
+            pollUrl: `/api/kilat/status?jobId=${jobId}`,
+            qstash: !fallback
         });
 
     } catch (error) {
