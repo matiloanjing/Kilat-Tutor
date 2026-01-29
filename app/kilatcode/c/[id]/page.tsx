@@ -91,8 +91,130 @@ export default function KilatCodePage({ params }: PageProps) {
     useEffect(() => {
         if (projectId) {
             loadProjectMessages(projectId);
+            // FIX 2026-01-30: Resume polling for in-progress jobs after page refresh
+            resumeActiveJob(projectId);
         }
     }, [projectId]);
+
+    // FIX 2026-01-30: Resume polling for active jobs on page load
+    const resumeActiveJob = async (sessionId: string) => {
+        const savedJobId = localStorage.getItem(`kilat_active_job_${sessionId}`);
+        if (!savedJobId) return;
+
+        console.log('🔄 [KilatCode] Checking for active job:', savedJobId);
+
+        try {
+            const statusRes = await fetch(`/api/kilat/status?jobId=${savedJobId}`);
+            const statusData = await statusRes.json();
+            const job = statusData.job;
+
+            if (job?.status === 'processing' || job?.status === 'pending') {
+                console.log('▶️ [KilatCode] Resuming active job at', job.progress, '%');
+                setIsProcessing(true);
+                setJobProgress(job.progress || 0);
+                setCurrentStep(job.currentStep || 'Resuming...');
+
+                // Add placeholder assistant message
+                const resumeMessage: Message = {
+                    id: `msg_resume_${Date.now()}`,
+                    role: 'assistant',
+                    content: '🔄 Resuming in-progress job...',
+                    timestamp: Date.now(),
+                    agent: 'KilatCode',
+                    status: 'streaming',
+                };
+                setMessages(prev => [...prev, resumeMessage]);
+
+                // Continue polling
+                pollJobStatus(savedJobId, resumeMessage.id);
+            } else if (job?.status === 'completed') {
+                // Job completed while away - load results
+                console.log('✅ [KilatCode] Job completed while away, loading results');
+                localStorage.removeItem(`kilat_active_job_${sessionId}`);
+                if (job.result?.files) {
+                    setGeneratedFiles(job.result.files);
+                }
+            } else {
+                // Job failed or not found - cleanup
+                localStorage.removeItem(`kilat_active_job_${sessionId}`);
+            }
+        } catch (error) {
+            console.error('❌ [KilatCode] Failed to resume job:', error);
+            localStorage.removeItem(`kilat_active_job_${sessionId}`);
+        }
+    };
+
+    // Extracted polling logic for reuse
+    const pollJobStatus = async (jobId: string, assistantMessageId: string) => {
+        let completed = false;
+        let pollCount = 0;
+        const maxPolls = 300;
+
+        while (!completed && pollCount < maxPolls) {
+            await new Promise(r => setTimeout(r, 1000));
+            pollCount++;
+
+            try {
+                const statusRes = await fetch(`/api/kilat/status?jobId=${jobId}`);
+                const statusData = await statusRes.json();
+                const job = statusData.job;
+
+                if (job?.status === 'completed') {
+                    completed = true;
+                    localStorage.removeItem(`kilat_active_job_${projectId}`);
+
+                    setMessages(prev => prev.map(m =>
+                        m.id === assistantMessageId
+                            ? {
+                                ...m,
+                                content: job.result?.content || 'Generation complete!',
+                                status: 'complete' as const,
+                            }
+                            : m
+                    ));
+
+                    const files = job.result?.files;
+                    if (files && Object.keys(files).length > 0) {
+                        setGeneratedFiles(files);
+                        const projectName = job.result?.metadata?.projectName;
+                        if (projectName) {
+                            setProjectName(projectName);
+                        }
+                    }
+                    setIsProcessing(false);
+                } else if (job?.status === 'failed') {
+                    completed = true;
+                    localStorage.removeItem(`kilat_active_job_${projectId}`);
+                    setMessages(prev => prev.map(m =>
+                        m.id === assistantMessageId
+                            ? {
+                                ...m,
+                                content: `❌ Error: ${job.error || 'Job failed'}`,
+                                status: 'error' as const,
+                            }
+                            : m
+                    ));
+                    setIsProcessing(false);
+                } else {
+                    // Update progress
+                    const progress = job?.progress || 0;
+                    const step = job?.currentStep || 'Processing...';
+                    setJobProgress(progress);
+                    if (step !== currentStep) {
+                        setCurrentStep(step);
+                        setStepHistory(prev => {
+                            if (prev[prev.length - 1] !== step) {
+                                return [...prev.slice(-20), step];
+                            }
+                            return prev;
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Polling error:', error);
+            }
+        }
+    };
 
     // Function to load messages from a project
     const loadProjectMessages = async (targetProjectId: string) => {
@@ -274,67 +396,11 @@ export default function KilatCodePage({ params }: PageProps) {
 
             const jobId = submitData.jobId;
 
-            // Poll for status
-            let completed = false;
-            let pollCount = 0;
-            const maxPolls = 300;
+            // FIX 2026-01-30: Save jobId to localStorage for resume on refresh
+            localStorage.setItem(`kilat_active_job_${projectId}`, jobId);
 
-            while (!completed && pollCount < maxPolls) {
-                await new Promise(r => setTimeout(r, 1000));
-                pollCount++;
-
-                const statusRes = await fetch(`/api/kilat/status?jobId=${jobId}`);
-                const statusData = await statusRes.json();
-                const job = statusData.job;
-
-                if (job?.status === 'completed') {
-                    completed = true;
-
-                    setMessages(prev => prev.map(m =>
-                        m.id === assistantMessage.id
-                            ? {
-                                ...m,
-                                content: job.result?.content || 'Generation complete!',
-                                status: 'complete' as const,
-                                // FIX 2026-01-24: Removed steps update - using ProcessingSteps only
-                            }
-                            : m
-                    ));
-
-                    const files = job.result?.files;
-                    if (files && Object.keys(files).length > 0) {
-                        setGeneratedFiles(files);
-                        const projectName = job.result?.metadata?.projectName;
-                        if (projectName) {
-                            setProjectName(projectName);
-                        }
-                    }
-
-                    // Note: quota.used is fetched by useQuota hook from /api/kilat/usage
-                } else if (job?.status === 'failed') {
-                    throw new Error(job.error || 'Job failed');
-                } else {
-                    // Update progress from backend
-                    const progress = job?.progress || 0;
-                    const step = job?.currentStep || 'Processing...';
-
-                    setJobProgress(progress);
-
-                    // Add to step history if it's a new step
-                    if (step !== currentStep) {
-                        setCurrentStep(step);
-                        setStepHistory(prev => {
-                            // Avoid duplicates
-                            if (prev[prev.length - 1] !== step) {
-                                return [...prev.slice(-20), step]; // Keep last 20 steps
-                            }
-                            return prev;
-                        });
-                    }
-
-                    // FIX 2026-01-24: Removed steps update - using ProcessingSteps component only
-                }
-            }
+            // Poll for status using extracted function
+            await pollJobStatus(jobId, assistantMessage.id);
         } catch (error) {
             console.error('Chat error:', error);
             setMessages(prev => prev.map(m =>
@@ -349,7 +415,9 @@ export default function KilatCodePage({ params }: PageProps) {
         } finally {
             setIsProcessing(false);
         }
-    }, [isProcessing, chatMode, projectId, selectedModel, user?.id]);
+    }, [isProcessing, chatMode, projectId, selectedModel, user?.id, currentStep, pollJobStatus]);
+
+
 
     // Handle publish
     const handlePublish = async () => {
