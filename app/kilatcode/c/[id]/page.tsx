@@ -134,8 +134,22 @@ export default function KilatCodePage({ params }: PageProps) {
                 if (job.result?.files) {
                     setGeneratedFiles(job.result.files);
                 }
+            } else if (job?.status === 'failed') {
+                // Job failed - show error to user
+                console.log('❌ [KilatCode] Job failed:', job.error);
+                localStorage.removeItem(`kilat_active_job_${sessionId}`);
+
+                const failedMessage: Message = {
+                    id: `msg_failed_${Date.now()}`,
+                    role: 'assistant',
+                    content: `❌ Previous job failed: ${job.error || 'Unknown error'}. Please try again.`,
+                    timestamp: Date.now(),
+                    agent: 'KilatCode',
+                    status: 'error',
+                };
+                setMessages(prev => [...prev, failedMessage]);
             } else {
-                // Job failed or not found - cleanup
+                // Job not found or other status - cleanup
                 localStorage.removeItem(`kilat_active_job_${sessionId}`);
             }
         } catch (error) {
